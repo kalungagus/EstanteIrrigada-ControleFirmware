@@ -1,62 +1,130 @@
-// PIC24F16KA102 Configuration Bit Settings
-// 'C' source line config statements
-
-// FBS
-#pragma config BWRP = OFF               // Table Write Protect Boot (Boot segment may be written)
-#pragma config BSS = OFF                // Boot segment Protect (No boot program Flash segment)
-
-// FGS
-#pragma config GWRP = OFF               // General Segment Code Flash Write Protection bit (General segment may be written)
-#pragma config GCP = OFF                // General Segment Code Flash Code Protection bit (No protection)
-
-// FOSCSEL
-#pragma config FNOSC = PRIPLL           // Oscillator Select (Primary oscillator with PLL module (HS+PLL, EC+PLL))
-#pragma config IESO = OFF               // Internal External Switch Over bit (Internal External Switchover mode disabled (Two-Speed Start-up disabled))
-
-// FOSC
-#pragma config POSCMOD = HS             // Primary Oscillator Configuration bits (HS oscillator mode selected)
-#pragma config OSCIOFNC = ON            // CLKO Enable Configuration bit (CLKO output disabled; pin functions as port I/O)
-#pragma config POSCFREQ = HS            // Primary Oscillator Frequency Range Configuration bits (Primary oscillator/external clock input frequency greater than 8 MHz)
-#pragma config SOSCSEL = SOSCHP         // SOSC Power Selection Configuration bits (Secondary oscillator configured for high-power operation)
-#pragma config FCKSM = CSDCMD           // Clock Switching and Monitor Selection (Both Clock Switching and Fail-safe Clock Monitor are disabled)
-
-// FWDT
-#pragma config WDTPS = PS32768          // Watchdog Timer Postscale Select bits (1:32,768)
-#pragma config FWPSA = PR128            // WDT Prescaler (WDT prescaler ratio of 1:128)
-#pragma config WINDIS = OFF             // Windowed Watchdog Timer Disable bit (Standard WDT selected; windowed WDT disabled)
-#pragma config FWDTEN = OFF             // Watchdog Timer Enable bit (WDT disabled (control is placed on the SWDTEN bit))
-
-// FPOR
-#pragma config BOREN = BOR3             // Brown-out Reset Enable bits (Brown-out Reset enabled in hardware; SBOREN bit disabled)
-#pragma config PWRTEN = ON              // Power-up Timer Enable bit (PWRT enabled)
-#pragma config I2C1SEL = PRI            // Alternate I2C1 Pin Mapping bit (Default location for SCL1/SDA1 pins)
-#pragma config BORV = V18               // Brown-out Reset Voltage bits (Brown-out Reset set to lowest voltage (1.8V))
-#pragma config MCLRE = ON               // MCLR Pin Enable bit (MCLR pin enabled; RA5 input pin disabled)
-
-// FICD
-#pragma config ICS = PGx3               // ICD Pin Placement Select bits (PGC3/PGD3 are used for programming and debugging the device)
-
-// FDS
-#pragma config DSWDTPS = DSWDTPSF       // Deep Sleep Watchdog Timer Postscale Select bits (1:2,147,483,648 (25.7 Days))
-#pragma config DSWDTOSC = LPRC          // DSWDT Reference Clock Select bit (DSWDT uses LPRC as reference clock)
-#pragma config RTCOSC = SOSC            // RTCC Reference Clock Select bit (RTCC uses SOSC as reference clock)
-#pragma config DSBOREN = ON             // Deep Sleep Zero-Power BOR Enable bit (Deep Sleep BOR enabled in Deep Sleep)
-#pragma config DSWDTEN = OFF            // Deep Sleep Watchdog Timer Enable bit (DSWDT disabled)
-
-// #pragma config statements should precede project file includes.
-// Use project enums instead of #define for ON and OFF.
+//***********************************************************************************************************************
+//                              Estante Irrigada - Firmware de Controle
+//***********************************************************************************************************************
+#include "fuse_bits.h"
 #include <xc.h>
+#include "IOPinDefinitions.h"
+#define FCY     16000000
+#include <libpic30.h>
+
+//=======================================================================================================================
+// Variáveis globais
+//=======================================================================================================================
+unsigned long int ledTimeLimit = 1000;
+
+//=======================================================================================================================
+// Interrupções
+//=======================================================================================================================
+//-----------------------------------------------------------------------------------------------------------------------
+// Interrupção do timer 1
+// Descrição: Sincronização de tempo das várias funções internas.
+//-----------------------------------------------------------------------------------------------------------------------
+void _ISR __attribute__((no_auto_psv)) _T1Interrupt(void)
+{
+    static unsigned long int counter = 0;
+    
+    counter++;
+    if(counter == ledTimeLimit)
+    {
+        counter = 0;
+        LED = ~LED;
+    }
+    // clear this interrupt condition
+    _T1IF = 0;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------
+// Interrupção do ADC
+// Descrição: Leitura de sensores
+//-----------------------------------------------------------------------------------------------------------------------
+void _ISR __attribute__((no_auto_psv)) _ADC1Interrupt(void)
+{
+    _AD1IF = 0;
+}
+
+//=======================================================================================================================
+// Funções
+//=======================================================================================================================
+//-----------------------------------------------------------------------------------------------------------------------
+// Inicialização de pinos de IO
+//-----------------------------------------------------------------------------------------------------------------------
+void initIOPins(void)
+{
+    // Nenhuma porta será usada como Open-drain
+    ODCA = 0x0000;
+    ODCB = 0x0000;
+    
+    // Configuração de portas de saída.
+    LED_TRIS = 0;
+    VALVULA0_TRIS = VALVULA1_TRIS = VALVULA2_TRIS = VALVULA3_TRIS = VALVULA4_TRIS = VALVULA5_TRIS = 0;
+    
+    LED = 0;
+    VALVULA0 = VALVULA1 = VALVULA2 = VALVULA3 = VALVULA4 = VALVULA5 = 0;
+
+    // Configuração de portas de entrada
+    SENSOR0 = SENSOR1 = SENSOR2 = SENSOR3 = SENSOR4 = SENSOR5 = 1;
+    
+    // Configuração do conversor Analógico-Digital
+    AD1PCFG = 0xFFFF;
+    SENSOR0_ADCON = SENSOR1_ADCON = SENSOR2_ADCON = SENSOR3_ADCON = SENSOR4_ADCON = SENSOR5_ADCON = 0;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------
+// Inicialização de Timers
+//-----------------------------------------------------------------------------------------------------------------------
+void initTimers(void)
+{
+    T1CON = 0x0000;
+    TMR1 = 0x0000;
+    PR1 = 0x07D0;       // Valor para contagem de 1ms
+    T1CON = 0x8010;     // Timer 1 On, Prescaler 1:8, clock interno = 500ns de período para 32MHz
+    _T1IE = 1;          // Habilita interrupção do Timer 1
+    _T1IP = 0x001;      // Prioridade mais baixa para a interrupção do Timer 1
+}
+
+//-----------------------------------------------------------------------------------------------------------------------
+// Inicialização dos ADCs
+//-----------------------------------------------------------------------------------------------------------------------
+void initADC(void)
+{
+    AD1CON1 = 0x0000;       // SAMP bit = 0 indica fim da amostragem e início da conversão, mas aqui o módulo não 
+                            // está ligado ainda
+    AD1CHS = 0x0000;        // Selecionando canal 0
+    AD1CSSL = 0;            // Não haverá varredura na leitura das portas analógicas.
+    AD1CON3 = 0x0002;       // Manual Sample, Tad = 3Tcy
+    AD1CON2 = 0;
+    AD1CON1bits.ADON = 1;   // Liga o ADC
+}
+
+//-----------------------------------------------------------------------------------------------------------------------
+// Obtém uma amostra do ADC
+//-----------------------------------------------------------------------------------------------------------------------
+uint16_t getADCSample(void)
+{
+    AD1CON1bits.SAMP = 1;       // Inicia a amostragem no conversor AD
+    __delay_us(1);              // Aguarda o tempo de amostragem
+    AD1CON1bits.SAMP = 0;       // Termina a amostragem, entrando automaticamente no período de conversão
+    while(!AD1CON1bits.DONE);   // Aguarda o fim da conversão;
+    return(ADC1BUF0);
+}
 
 int main(void) 
 {
-    long int counter;
+    uint16_t ADCValue;
     
-    TRISB = 0xFFEF;                     // PORTB4 é o pino de LED
-    PORTBbits.RB4 = 0;
+    initIOPins();
+    initTimers();
+    initADC();
     
-    for(;;)
+    for(;;) 
     {
-        for(counter = 0; counter < 100000; counter++);
-        PORTBbits.RB4 = ~PORTBbits.RB4;
+        ADCValue = getADCSample();
+        if(ADCValue > 800)
+        {
+            VALVULA0 = 1;
+            __delay_us(1);
+        }
+        else
+            VALVULA0 = 0;
     }
 }
