@@ -1,130 +1,269 @@
 //***********************************************************************************************************************
-//                              Estante Irrigada - Firmware de Controle
+//                                 Estante Irrigada - Firmware de Controle
+//
+// Data:       16/08/2024
+// Descrição:  Ponto de entrada do projeto
 //***********************************************************************************************************************
-#include "fuse_bits.h"
+
+// <editor-fold defaultstate="collapsed" desc="PIC24F16KA102 Configuration Bit Settings">
+// PIC24F16KA102 Configuration Bit Settings
+// 'C' source line config statements
+// FBS
+#pragma config BWRP = OFF               // Table Write Protect Boot (Boot segment may be written)
+#pragma config BSS = OFF                // Boot segment Protect (No boot program Flash segment)
+
+// FGS
+#pragma config GWRP = OFF               // General Segment Code Flash Write Protection bit (General segment may be written)
+#pragma config GCP = OFF                // General Segment Code Flash Code Protection bit (No protection)
+
+// FOSCSEL
+#pragma config FNOSC = PRIPLL           // Oscillator Select (Primary oscillator with PLL module (HS+PLL, EC+PLL))
+#pragma config IESO = OFF               // Internal External Switch Over bit (Internal External Switchover mode disabled (Two-Speed Start-up disabled))
+
+// FOSC
+#pragma config POSCMOD = HS             // Primary Oscillator Configuration bits (HS oscillator mode selected)
+#pragma config OSCIOFNC = ON            // CLKO Enable Configuration bit (CLKO output disabled; pin functions as port I/O)
+#pragma config POSCFREQ = HS            // Primary Oscillator Frequency Range Configuration bits (Primary oscillator/external clock input frequency greater than 8 MHz)
+#pragma config SOSCSEL = SOSCHP         // SOSC Power Selection Configuration bits (Secondary oscillator configured for high-power operation)
+#pragma config FCKSM = CSDCMD           // Clock Switching and Monitor Selection (Both Clock Switching and Fail-safe Clock Monitor are disabled)
+
+// FWDT
+#pragma config WDTPS = PS32768          // Watchdog Timer Postscale Select bits (1:32,768)
+#pragma config FWPSA = PR128            // WDT Prescaler (WDT prescaler ratio of 1:128)
+#pragma config WINDIS = OFF             // Windowed Watchdog Timer Disable bit (Standard WDT selected; windowed WDT disabled)
+#pragma config FWDTEN = OFF             // Watchdog Timer Enable bit (WDT disabled (control is placed on the SWDTEN bit))
+
+// FPOR
+#pragma config BOREN = BOR3             // Brown-out Reset Enable bits (Brown-out Reset enabled in hardware; SBOREN bit disabled)
+#pragma config PWRTEN = ON              // Power-up Timer Enable bit (PWRT enabled)
+#pragma config I2C1SEL = PRI            // Alternate I2C1 Pin Mapping bit (Default location for SCL1/SDA1 pins)
+#pragma config BORV = V18               // Brown-out Reset Voltage bits (Brown-out Reset set to lowest voltage (1.8V))
+#pragma config MCLRE = ON               // MCLR Pin Enable bit (MCLR pin enabled; RA5 input pin disabled)
+
+// FICD
+#pragma config ICS = PGx3               // ICD Pin Placement Select bits (PGC3/PGD3 are used for programming and debugging the device)
+
+// FDS
+#pragma config DSWDTPS = DSWDTPSF       // Deep Sleep Watchdog Timer Postscale Select bits (1:2,147,483,648 (25.7 Days))
+#pragma config DSWDTOSC = LPRC          // DSWDT Reference Clock Select bit (DSWDT uses LPRC as reference clock)
+#pragma config RTCOSC = LPRC            // RTCC Reference Clock Select bit (RTCC uses SOSC as reference clock)
+#pragma config DSBOREN = ON             // Deep Sleep Zero-Power BOR Enable bit (Deep Sleep BOR enabled in Deep Sleep)
+#pragma config DSWDTEN = OFF            // Deep Sleep Watchdog Timer Enable bit (DSWDT disabled)
+
+// #pragma config statements should precede project file includes.
+// Use project enums instead of #define for ON and OFF.
+// </editor-fold>
+
 #include <xc.h>
-#include "IOPinDefinitions.h"
-#define FCY     16000000
-#include <libpic30.h>
+#include "Configuration/HardwareConfiguration.h"
+#include "Peripherals/timers.h"
+#include "Peripherals/ADC.h"
+#include "Peripherals/EEPROM.h"
+#include "Peripherals/SPI.h"
+#include "Peripherals/LoRa.h"
+#include "Peripherals/RTCC.h"
+#include "Applications/sensorHandling.h"
+#include "Applications/LoRaReception.h"
+#include "Applications/mainApplication.h"
 
-//=======================================================================================================================
+//***********************************************************************************************************************
 // Variáveis globais
-//=======================================================================================================================
-unsigned long int ledTimeLimit = 1000;
-
-//=======================================================================================================================
-// Interrupções
-//=======================================================================================================================
-//-----------------------------------------------------------------------------------------------------------------------
-// Interrupção do timer 1
-// Descrição: Sincronização de tempo das várias funções internas.
-//-----------------------------------------------------------------------------------------------------------------------
-void _ISR __attribute__((no_auto_psv)) _T1Interrupt(void)
+//***********************************************************************************************************************
+// <editor-fold defaultstate="collapsed" desc="Project pin configuration table">
+const IOPortSetup_t ioSetup[] =
 {
-    static unsigned long int counter = 0;
-    
-    counter++;
-    if(counter == ledTimeLimit)
-    {
-        counter = 0;
-        LED = ~LED;
-    }
-    // clear this interrupt condition
-    _T1IF = 0;
-}
+    {.ioPin.ID = LED, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = LORA_RST, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = LORA_NSS, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_ON},
+    {.ioPin.ID = SENSOR_EN, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA0, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA1, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA2, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA3, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA4, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = VALVULA5, .direction = IO_OUTPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR0, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR1, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR2, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR3, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR4, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF},
+    {.ioPin.ID = SENSOR5, .direction = IO_INPUT, .openDrain = IO_NORMAL_OUTPUT, .initialState = PIN_OFF}
+};
+// </editor-fold>
 
-//-----------------------------------------------------------------------------------------------------------------------
-// Interrupção do ADC
-// Descrição: Leitura de sensores
-//-----------------------------------------------------------------------------------------------------------------------
-void _ISR __attribute__((no_auto_psv)) _ADC1Interrupt(void)
+// <editor-fold defaultstate="collapsed" desc="Project ADC Configuration table">
+const ADCSetup_t adSetup[] =
 {
-    _AD1IF = 0;
-}
+    {.channel = SENSOR0_ADC, .adstate = PIN_ANALOG},
+    {.channel = SENSOR1_ADC, .adstate = PIN_ANALOG},
+    {.channel = SENSOR2_ADC, .adstate = PIN_ANALOG},
+    {.channel = SENSOR3_ADC, .adstate = PIN_ANALOG},
+    {.channel = SENSOR4_ADC, .adstate = PIN_ANALOG},
+    {.channel = SENSOR5_ADC, .adstate = PIN_ANALOG}
+};
+// </editor-fold>
 
+// <editor-fold defaultstate="collapsed" desc="Sensor Configuration table">
+controlConfig_t controlList[MAX_SENSORS] =
+{
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_0, .valvePin.ID = VALVULA0, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_1, .valvePin.ID = VALVULA1, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_2, .valvePin.ID = VALVULA2, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_3, .valvePin.ID = VALVULA3, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_4, .valvePin.ID = VALVULA4, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_5, .valvePin.ID = VALVULA5, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800}
+};
+// </editor-fold>
+
+// <editor-fold defaultstate="collapsed" desc="Non-volatile Configurations for saving">
+typedef struct
+{
+    uint16_t        alarmFrequency;
+    uint16_t        operation[MAX_SENSORS];
+    uint16_t        minThreshold[MAX_SENSORS];
+    uint16_t        maxThreshold[MAX_SENSORS];
+} nonVolatileConfig_t;
+
+nonVolatileConfig_t nonVolatileConfig = 
+{
+    .alarmFrequency = ALARM_EVERY_10_SECONDS,
+    .operation = {0, 0, 0, 0, 0, 0},
+    .minThreshold = {350, 350, 350, 350, 350, 350},
+    .maxThreshold = {900, 900, 900, 900, 900, 900}
+};
+// </editor-fold>
+
+uint32_t applicationTimeOut = 0;
+uint8_t timeOutEnable = TIMEOUT_ENABLE;
+
+//***********************************************************************************************************************
+// Funções privadas que não podem ser acessadas por aplicações-filho
+//***********************************************************************************************************************
 //=======================================================================================================================
-// Funções
-//=======================================================================================================================
-//-----------------------------------------------------------------------------------------------------------------------
 // Inicialização de pinos de IO
-//-----------------------------------------------------------------------------------------------------------------------
+//=======================================================================================================================
 void initIOPins(void)
 {
-    // Nenhuma porta será usada como Open-drain
-    ODCA = 0x0000;
-    ODCB = 0x0000;
-    
-    // Configuração de portas de saída.
-    LED_TRIS = 0;
-    VALVULA0_TRIS = VALVULA1_TRIS = VALVULA2_TRIS = VALVULA3_TRIS = VALVULA4_TRIS = VALVULA5_TRIS = 0;
-    
-    LED = 0;
-    VALVULA0 = VALVULA1 = VALVULA2 = VALVULA3 = VALVULA4 = VALVULA5 = 0;
-
-    // Configuração de portas de entrada
-    SENSOR0 = SENSOR1 = SENSOR2 = SENSOR3 = SENSOR4 = SENSOR5 = 1;
-    
-    // Configuração do conversor Analógico-Digital
-    AD1PCFG = 0xFFFF;
-    SENSOR0_ADCON = SENSOR1_ADCON = SENSOR2_ADCON = SENSOR3_ADCON = SENSOR4_ADCON = SENSOR5_ADCON = 0;
-}
-
-//-----------------------------------------------------------------------------------------------------------------------
-// Inicialização de Timers
-//-----------------------------------------------------------------------------------------------------------------------
-void initTimers(void)
-{
-    T1CON = 0x0000;
-    TMR1 = 0x0000;
-    PR1 = 0x07D0;       // Valor para contagem de 1ms
-    T1CON = 0x8010;     // Timer 1 On, Prescaler 1:8, clock interno = 500ns de período para 32MHz
-    _T1IE = 1;          // Habilita interrupção do Timer 1
-    _T1IP = 0x001;      // Prioridade mais baixa para a interrupção do Timer 1
-}
-
-//-----------------------------------------------------------------------------------------------------------------------
-// Inicialização dos ADCs
-//-----------------------------------------------------------------------------------------------------------------------
-void initADC(void)
-{
-    AD1CON1 = 0x0000;       // SAMP bit = 0 indica fim da amostragem e início da conversão, mas aqui o módulo não 
-                            // está ligado ainda
-    AD1CHS = 0x0000;        // Selecionando canal 0
-    AD1CSSL = 0;            // Não haverá varredura na leitura das portas analógicas.
-    AD1CON3 = 0x0002;       // Manual Sample, Tad = 3Tcy
-    AD1CON2 = 0;
-    AD1CON1bits.ADON = 1;   // Liga o ADC
-}
-
-//-----------------------------------------------------------------------------------------------------------------------
-// Obtém uma amostra do ADC
-//-----------------------------------------------------------------------------------------------------------------------
-uint16_t getADCSample(void)
-{
-    AD1CON1bits.SAMP = 1;       // Inicia a amostragem no conversor AD
-    __delay_us(1);              // Aguarda o tempo de amostragem
-    AD1CON1bits.SAMP = 0;       // Termina a amostragem, entrando automaticamente no período de conversão
-    while(!AD1CON1bits.DONE);   // Aguarda o fim da conversão;
-    return(ADC1BUF0);
-}
-
-int main(void) 
-{
-    uint16_t ADCValue;
-    
-    initIOPins();
-    initTimers();
-    initADC();
-    
-    for(;;) 
+    if(RCONbits.DPSLP)              // Setado se foi acordado de um Deep Sleep.
     {
-        ADCValue = getADCSample();
-        if(ADCValue > 800)
-        {
-            VALVULA0 = 1;
-            __delay_us(1);
-        }
-        else
-            VALVULA0 = 0;
+        RCONbits.DPSLP = 0;
+        if(DSWAKEbits.DSRTCC)       // Acordado pelo alarme
+            setNewSensorReading();  // Fas a leitura da amostra requisitada
+        DSCONbits.RELEASE = 0;      // Libera os pinos para seu estado anterior ao Deep Sleep
+    }
+
+    // Desliga todos os módulos para reduzir o consumo
+    // Depois, liga-se apenas os necessários.
+    PMD1 = 0xFFFF;
+    PMD2 = 0xFFFF;
+    PMD3 = 0xFFFF;
+    PMD4 = 0xFFFF;
+    
+    PMD1bits.SPI1MD = 0;         // Habilita o módulo SPI para comunicação LoRa
+    PMD1bits.ADC1MD = 0;         // Habilita o ADC
+    PMD1bits.T1MD = 0;           // Habilita o Timer 1
+    PMD3bits.RTCCMD = 0;         // Habilita o RTCC
+    PMD4bits.EEMD = 0;           // Habilita a EEPROM
+    
+    // Configuração dos pinos usados no projeto
+    setupPinList(ioSetup, sizeof(ioSetup)/sizeof(IOPortSetup_t));
+    // Configuração de conversores analógico-digital
+    setupADCPinState(ADC_ALL, PIN_DIGITAL);
+    setupADCPinStateList(adSetup, sizeof(adSetup)/sizeof(ADCSetup_t));
+}
+
+//=======================================================================================================================
+// Recupera as configurações do módulo
+//=======================================================================================================================
+void loadModuleConfiguration(void)
+{
+    loadFromEEPROM((uint8_t *)&nonVolatileConfig, 2, sizeof(nonVolatileConfig));
+    for(uint8_t index = 0; index < MAX_SENSORS; index++)
+    {
+        controlList[index].operation = (uint8_t)nonVolatileConfig.operation[index];
+        controlList[index].minThreshold = nonVolatileConfig.minThreshold[index];
+        controlList[index].maxThreshold = nonVolatileConfig.maxThreshold[index];
+        controlList[index].lastState = readPin(controlList[index].valvePin);
     }
 }
+
+//***********************************************************************************************************************
+// Funções públicas que podem ser acessadas por aplicações-filho
+//***********************************************************************************************************************
+//=======================================================================================================================
+// Salva as configurações do projeto
+//=======================================================================================================================
+uint8_t saveConfiguration(void)
+{
+    nonVolatileConfig.alarmFrequency = getAlarmFrequency();
+    for(uint8_t index = 0; index < MAX_SENSORS; index++)
+    {
+        nonVolatileConfig.operation[index] = controlList[index].operation;
+        nonVolatileConfig.minThreshold[index] = controlList[index].minThreshold;
+        nonVolatileConfig.maxThreshold[index] = controlList[index].maxThreshold;
+    }
+    
+    if(saveToEEPROM((uint8_t *)&nonVolatileConfig, 2, sizeof(nonVolatileConfig)) == sizeof(nonVolatileConfig))
+        return 1;
+    else
+        return 0;
+}
+
+//=======================================================================================================================
+// Coloca o dispositivo em modo Deep Sleep para consumo mínimo de energia
+//=======================================================================================================================
+void deepSleep(void)
+{
+    loraPowerDown();
+    DSCONbits.DSEN = 1; // Define o modo Deep Sleep
+    Sleep();
+}
+
+//=======================================================================================================================
+// Reseta o timeout da aplicação. Quando chega ao final do timeout, a aplicação entra em modo Deep Sleep
+//=======================================================================================================================
+void resetTimeOut(void)
+{
+    applicationTimeOut = getTimerInterruptCount();
+}
+
+//=======================================================================================================================
+// Reseta o timeout da aplicação. Quando chega ao final do timeout, a aplicação entra em modo Deep Sleep
+//=======================================================================================================================
+void setTimeOutState(uint8_t state)
+{
+    timeOutEnable = state;
+}
+
+//***********************************************************************************************************************
+// Função principal
+//***********************************************************************************************************************
+int main(void) 
+{    
+    // Inicialização do sistema
+    initIOPins();
+    initTimers();
+    initADCs();
+    initEEPROM((uint8_t *)&nonVolatileConfig, sizeof(nonVolatileConfig));
+    loadModuleConfiguration();
+    initRTCC(nonVolatileConfig.alarmFrequency);
+    initSPI();
+    initLoRa(LORA_RST, LORA_NSS);
+
+    initTaskSensorHandling(LED, SENSOR_EN);
+    
+    setTimerState(TIMER_ON);
+    resetTimeOut();
+    
+    // Loop Principal do sistema
+    for(;;) 
+    {
+        taskSensorHandling();
+        taskLoRaReception();
+        
+        if((timeOutEnable == TIMEOUT_ENABLE) && ((getTimerInterruptCount() - applicationTimeOut) >= APPLICATION_TIME_OUT))
+            deepSleep();
+    }
+}
+
+//***********************************************************************************************************************
