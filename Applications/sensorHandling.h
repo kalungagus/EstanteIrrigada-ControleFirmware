@@ -51,7 +51,6 @@ typedef struct
 // Funções públicas do módulo
 //***********************************************************************************************************************
 extern void initTaskSensorHandling(uint16_t activityPinID, uint16_t enablePinID);
-extern void setNewSensorReading(void);
-extern void taskSensorHandling(void);
+extern void taskSensorHandling(uint8_t *sendSamples, uint8_t *readSensors, uint8_t *valveActivated);
 
 #endif /* APPLICATION_SENSOR_HANDLING */

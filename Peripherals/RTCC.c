@@ -44,7 +44,7 @@ void _ISR __attribute__((no_auto_psv)) _RTCCInterrupt(void)
 //=======================================================================================================================
 // Inicialização do módulo de RTCC
 //=======================================================================================================================
-void initRTCC(uint8_t alarmFreq)
+void initRTCC(void)
 {
     //_RTCCMD = 0; // Habilita o módulo de RTCC, se este foi completamente desabilitado
     unlockRTCC();
@@ -55,7 +55,7 @@ void initRTCC(uint8_t alarmFreq)
     
     // Configuração dos alarmes
     ALCFGRPT = 0;                   // Desabilita tudo antes de iniciar
-    ALCFGRPTbits.AMASK = alarmFreq; // A princípio, 1 alarme a cada 10 segundos
+    ALCFGRPTbits.AMASK = 2;         // 1 alarme a cada 10 segundos
     ALCFGRPTbits.CHIME = 1;         // Habilita a repetição de alarmes
     ALCFGRPTbits.ARPT = 1;
     ALCFGRPTbits.ALRMEN = 1;        // Alarm habilitado
@@ -125,24 +125,6 @@ void readAlarmTime(DateTime_t *value)
 }
 
 //=======================================================================================================================
-// Define a frequência do alarme
-//=======================================================================================================================
-void setAlarmFrequency(uint8_t alarmFreq)
-{
-    unlockRTCC();
-    ALCFGRPTbits.AMASK = alarmFreq;
-    lockRTCC();
-}
-
-//=======================================================================================================================
-// Define a frequência do alarme
-//=======================================================================================================================
-uint8_t getAlarmFrequency(void)
-{
-    return ALCFGRPTbits.AMASK;
-}
-
-//=======================================================================================================================
 // Definindo a função de tratamento de interrupção do RTC.
 //=======================================================================================================================
 void setAlarmInterruptHandler(void (*handler)(void))
@@ -150,6 +132,38 @@ void setAlarmInterruptHandler(void (*handler)(void))
     TurnRTCCInterruptOff();
     AlarmInterruptHandler = handler;
     TurnRTCCInterruptOn();
+}
+
+//=======================================================================================================================
+// Define se o RTC está atualizado, baseando-se no ano do desenvolvimento do projeto. Se o ano do RTC for menor que
+// o ano de desenvolvimento do projeto, define-se que este está desatualizado
+//=======================================================================================================================
+uint8_t isRTCCUpdated(void)
+{
+    DateTime_t now;
+    
+    readDateTime(&now);
+    if(bcdToInt(now.Time.year) < 24)
+        return 0;
+    else
+        return 1;
+}
+
+//=======================================================================================================================
+// Conversão de bcd para número inteiro
+//=======================================================================================================================
+uint16_t bcdToInt(uint8_t data)
+{
+    return ((((data & 0xF0) >> 4) * 10) + (data & 0x0F));
+}
+
+//=======================================================================================================================
+// Conversão de número inteiro para bcd
+//=======================================================================================================================
+uint8_t intToBcd(uint16_t data)
+{
+    uint8_t value = ((((data & 0x00FF) / 10) << 4) + (data & 0x00FF) % 10);
+    return value;
 }
 
 //***********************************************************************************************************************

@@ -7,18 +7,6 @@
 #include <xc.h>
 
 //***********************************************************************************************************************
-// Defines
-//***********************************************************************************************************************
-//=======================================================================================================================
-// Frequências de alarme disponíveis
-//=======================================================================================================================
-#define ALARM_EVERY_10_SECONDS      2
-#define ALARM_EVERY_MINUTE          3
-#define ALARM_EVERY_10_MINUTES      4
-#define ALARM_EVERY_HOUR            5
-#define ALARM_ONCE_A_DAY            6
-
-//***********************************************************************************************************************
 // Tipos de variáveis relacionadas ao módulo de ADC
 //***********************************************************************************************************************
 // Variável de data/hora
@@ -42,14 +30,15 @@ typedef union
 //***********************************************************************************************************************
 // Funções públicas do módulo
 //***********************************************************************************************************************
-extern void initRTCC(uint8_t alarmFreq);
+extern void initRTCC(void);
 extern void writeDateTime(DateTime_t *value);
 extern void readDateTime(DateTime_t *value);
 extern void writeAlarmTime(DateTime_t *value);
 extern void readAlarmTime(DateTime_t *value);
-extern void setAlarmFrequency(uint8_t alarmFreq);
-extern uint8_t getAlarmFrequency(void);
 extern void setAlarmInterruptHandler(void (*handler)(void));
 extern void loraPowerDown(void);
+extern uint8_t isRTCCUpdated(void);
+extern uint16_t bcdToInt(uint8_t data);
+extern uint8_t intToBcd(uint16_t data);
 
 #endif

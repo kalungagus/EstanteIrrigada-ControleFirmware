@@ -118,7 +118,6 @@ controlConfig_t controlList[MAX_SENSORS] =
 // <editor-fold defaultstate="collapsed" desc="Non-volatile Configurations for saving">
 typedef struct
 {
-    uint16_t        alarmFrequency;
     uint16_t        operation[MAX_SENSORS];
     uint16_t        minThreshold[MAX_SENSORS];
     uint16_t        maxThreshold[MAX_SENSORS];
@@ -126,7 +125,6 @@ typedef struct
 
 nonVolatileConfig_t nonVolatileConfig = 
 {
-    .alarmFrequency = ALARM_EVERY_10_SECONDS,
     .operation = {0, 0, 0, 0, 0, 0},
     .minThreshold = {350, 350, 350, 350, 350, 350},
     .maxThreshold = {900, 900, 900, 900, 900, 900}
@@ -134,22 +132,55 @@ nonVolatileConfig_t nonVolatileConfig =
 // </editor-fold>
 
 uint32_t applicationTimeOut = 0;
-uint8_t timeOutEnable = TIMEOUT_ENABLE;
+uint8_t setupTaks = 1;
+uint8_t timeOutState = TIME_OUT_ENABLED;
+uint8_t valveActivated = 0, readSensors = 0, requestCalendar = 0;
+uint8_t requestMessages = 0, sendSamples = 0;
 
 //***********************************************************************************************************************
 // Funções privadas que não podem ser acessadas por aplicações-filho
 //***********************************************************************************************************************
 //=======================================================================================================================
+// Configura a execução das tasks
+//=======================================================================================================================
+static void setupForTaskExecution(void)
+{
+    if(setupTaks)
+    {
+        DateTime_t now;
+        readDateTime(&now);
+
+        requestCalendar = !isRTCCUpdated();
+        readSensors = valveActivated;
+        if(!requestCalendar)
+        {
+            requestMessages = 1;
+            
+            if(bcdToInt(now.Time.seconds) < 10)
+                sendSamples = 1;
+        }
+        
+        setupTaks = 0;
+    }    
+}
+
+//=======================================================================================================================
+// Vetor de interrupção do alarme
+//=======================================================================================================================
+static void alarmHandler(void)
+{
+    setupTaks = 1;
+}
+
+//=======================================================================================================================
 // Inicialização de pinos de IO
 //=======================================================================================================================
 void initIOPins(void)
 {
-    if(RCONbits.DPSLP)              // Setado se foi acordado de um Deep Sleep.
+    if(RCONbits.DPSLP)               // Setado se foi acordado de um Deep Sleep.
     {
         RCONbits.DPSLP = 0;
-        if(DSWAKEbits.DSRTCC)       // Acordado pelo alarme
-            setNewSensorReading();  // Fas a leitura da amostra requisitada
-        DSCONbits.RELEASE = 0;      // Libera os pinos para seu estado anterior ao Deep Sleep
+        DSCONbits.RELEASE = 0;       // Libera os pinos para seu estado anterior ao Deep Sleep
     }
 
     // Desliga todos os módulos para reduzir o consumo
@@ -195,7 +226,6 @@ void loadModuleConfiguration(void)
 //=======================================================================================================================
 uint8_t saveConfiguration(void)
 {
-    nonVolatileConfig.alarmFrequency = getAlarmFrequency();
     for(uint8_t index = 0; index < MAX_SENSORS; index++)
     {
         nonVolatileConfig.operation[index] = controlList[index].operation;
@@ -220,6 +250,14 @@ void deepSleep(void)
 }
 
 //=======================================================================================================================
+// Força o setup das tarefas, para o caso de atualização de RTCC
+//=======================================================================================================================
+void forceTaskSetup(void)
+{
+    setupTaks = 1;
+}
+
+//=======================================================================================================================
 // Reseta o timeout da aplicação. Quando chega ao final do timeout, a aplicação entra em modo Deep Sleep
 //=======================================================================================================================
 void resetTimeOut(void)
@@ -232,37 +270,60 @@ void resetTimeOut(void)
 //=======================================================================================================================
 void setTimeOutState(uint8_t state)
 {
-    timeOutEnable = state;
+    timeOutState = state;
 }
 
 //***********************************************************************************************************************
 // Função principal
 //***********************************************************************************************************************
 int main(void) 
-{    
+{
+    uint8_t valveActivationLastState;
+    
     // Inicialização do sistema
     initIOPins();
     initTimers();
     initADCs();
+    
     initEEPROM((uint8_t *)&nonVolatileConfig, sizeof(nonVolatileConfig));
     loadModuleConfiguration();
-    initRTCC(nonVolatileConfig.alarmFrequency);
+    
+    setAlarmInterruptHandler(alarmHandler);
+    initRTCC();
+    
     initSPI();
     initLoRa(LORA_RST, LORA_NSS);
 
     initTaskSensorHandling(LED, SENSOR_EN);
     
     setTimerState(TIMER_ON);
-    resetTimeOut();
     
     // Loop Principal do sistema
     for(;;) 
     {
-        taskSensorHandling();
-        taskLoRaReception();
+        valveActivationLastState = valveActivated;
         
-        if((timeOutEnable == TIMEOUT_ENABLE) && ((getTimerInterruptCount() - applicationTimeOut) >= APPLICATION_TIME_OUT))
-            deepSleep();
+        setupForTaskExecution();
+        taskSensorHandling(&sendSamples, &readSensors, &valveActivated);
+        taskLoRaReception(&requestCalendar, &requestMessages);
+        
+        // Sem válvulas ativas, o sistema pode operar no modo de power-down
+        if(valveActivated == 0)
+        {
+            // Inicia o timeout assim que desativar todas as válvulas
+            if(valveActivationLastState == 1)
+                resetTimeOut();
+        
+            // O firmware deve entrar em modo Deep Sleep quando não houver válvulas ligadas. Isto porque
+            // no Deep Sleep as portas do microcontrolador são desligadas.
+            if(timeOutState == FORCE_TIMEOUT)
+                deepSleep();
+            else if(timeOutState == TIME_OUT_ENABLED)
+            {
+                if((getTimerInterruptCount() - applicationTimeOut) >= APPLICATION_TIME_OUT)
+                    deepSleep();
+            }
+        }
     }
 }
 
