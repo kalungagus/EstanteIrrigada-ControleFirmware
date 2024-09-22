@@ -106,12 +106,12 @@ const ADCSetup_t adSetup[] =
 // <editor-fold defaultstate="collapsed" desc="Sensor Configuration table">
 controlConfig_t controlList[MAX_SENSORS] =
 {
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_0, .valvePin.ID = VALVULA0, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_1, .valvePin.ID = VALVULA1, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_2, .valvePin.ID = VALVULA2, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_3, .valvePin.ID = VALVULA3, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_4, .valvePin.ID = VALVULA4, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800},
-    {.operation = SENSOR_ENABLED, .sensorADC = ADC_5, .valvePin.ID = VALVULA5, .lastState = PIN_OFF, .minThreshold = 350, .maxThreshold = 800}
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_0, .valvePin.ID = VALVULA0, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_1, .valvePin.ID = VALVULA1, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_2, .valvePin.ID = VALVULA2, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_3, .valvePin.ID = VALVULA3, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_4, .valvePin.ID = VALVULA4, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860},
+    {.operation = SENSOR_ENABLED, .sensorADC = ADC_5, .valvePin.ID = VALVULA5, .lastState = PIN_OFF, .minThreshold = 620, .maxThreshold = 860 }
 };
 // </editor-fold>
 
@@ -126,8 +126,8 @@ typedef struct
 nonVolatileConfig_t nonVolatileConfig = 
 {
     .operation = {0, 0, 0, 0, 0, 0},
-    .minThreshold = {350, 350, 350, 350, 350, 350},
-    .maxThreshold = {900, 900, 900, 900, 900, 900}
+    .minThreshold = {620, 620, 620, 620, 620, 620},
+    .maxThreshold = {860, 860, 860, 860, 860, 860}
 };
 // </editor-fold>
 

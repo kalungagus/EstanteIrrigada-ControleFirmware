@@ -108,6 +108,11 @@ void taskSensorHandling(uint8_t *sendSamples, uint8_t *readSensors, uint8_t *val
                     setValveState(controlList[index].valvePin, PIN_ON);
                     actualSampling.state[index] = PIN_ON;
                     controlList[index].lastState = PIN_ON;
+                }
+                
+                // Uma válvula foi ativada, sinaliza isto para a aplicação.
+                if(controlList[index].lastState == PIN_ON)
+                {
                     *valveActivated = 1;
                 }
             }
