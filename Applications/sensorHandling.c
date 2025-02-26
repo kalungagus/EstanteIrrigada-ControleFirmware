@@ -55,6 +55,18 @@ static void setValveState(IOPort_t valvePin, uint8_t state)
                                 // Limite máximo de corrente para todas as portas é de 200mA.
 }
 
+//=======================================================================================================================
+// Faz a leitura de um sensor utilizando um filtro de médias
+// Definido para uma média de 8 valores para que a rotina seja executada de forma rápida
+//=======================================================================================================================
+static uint16_t getSensorReading(adcChannel_t sensorChannel)
+{
+    uint16_t readingTotal = 0;
+    for(uint8_t index = 0; index < 8; index++)
+        readingTotal += getADCSample(sensorChannel);
+    return(readingTotal >> 3);
+}
+
 //***********************************************************************************************************************
 // Funções públicas
 //***********************************************************************************************************************
@@ -87,7 +99,7 @@ void taskSensorHandling(uint8_t *sendSamples, uint8_t *readSensors, uint8_t *val
         // para manter a fonte dos sensores ligada o menor tempo possível.
         setSensorSourceState(1);    // Liga a fonte dos sensores
         for(int8_t index = 0; index < 6; index++)
-            actualSampling.value[index] = (controlList[index].operation != CONTROL_DISABLED) ? getADCSample(controlList[index].sensorADC) : 0x0000;
+            actualSampling.value[index] = (controlList[index].operation != CONTROL_DISABLED) ? getSensorReading(controlList[index].sensorADC) : 0x0000;
         setSensorSourceState(0);    // Desliga a fonte dos sensores
 
         *valveActivated = 0;

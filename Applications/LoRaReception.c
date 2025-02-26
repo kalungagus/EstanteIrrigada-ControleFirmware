@@ -35,7 +35,7 @@ static unsigned char receptionBuffer[MAX_PACKET_SIZE];
 //=======================================================================================================================
 static void processReception(unsigned char *packet, uint8_t size)
 {
-    DateTime_t tempDateTime;
+    DateTime_t tempDateTime, systemDateTime;
     CommandConfig_t requestedConfig, *configToSet;
     
     switch(packet[0] & COMMAND_MASK)
@@ -50,13 +50,14 @@ static void processReception(unsigned char *packet, uint8_t size)
             break;
         case CMD_SET_DATETIME:
             memcpy(&tempDateTime, &packet[1], sizeof(DateTime_t));
+            readDateTime(&systemDateTime);
             writeDateTime((DateTime_t *)&packet[1]);
             // Confirmação para o software de configuração. Para o roteador, o módulo fará nova requisição se falhar.
             if(getPacketOrigin(packet[0]) == COMMAND_SOURCE_SOFTWARE)
                 sendAck(ENDPOINT_COMMAND | CMD_SET_DATETIME);
             
             // RTCC foi atualizado e pode perder uma amostragem, já que o alarme está configurado para 0 segundos.
-            if(tempDateTime.Time.seconds < 10)
+            if((bcdToInt(systemDateTime.Time.seconds) > 50) && (bcdToInt(tempDateTime.Time.seconds) < 10))
                 forceTaskSetup();
             break;
         case CMD_GET_CONTROL_CONFIG:
