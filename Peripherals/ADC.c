@@ -15,7 +15,7 @@
 //***********************************************************************************************************************
 // Variáveis privadas do módulo
 //***********************************************************************************************************************
-static const uint8_t adcList[NUM_OF_ADCS] = {ADC_0, ADC_1, ADC_2, ADC_3, ADC_4, ADC_5, ADC_10, ADC_11, ADC_12};
+static const uint8_t adcList[NUM_OF_ADCS] = {ADC_AN0, ADC_AN1, ADC_AN2, ADC_AN3, ADC_AN4, ADC_AN5, ADC_AN10, ADC_AN11, ADC_AN12};
 static uint16_t calibrationValue[NUM_OF_ADCS];
 
 //***********************************************************************************************************************
@@ -37,13 +37,30 @@ void _ISR __attribute__((no_auto_psv)) _ADC1Interrupt(void)
 //=======================================================================================================================
 // Seleciona um canal de ADC
 //=======================================================================================================================
-static void selectADChannel(adcChannel_t channel)
+static void selectADChannel(uint8_t channel)
 {
     if(channel != ADC_ALL)
     {
-        __delay32(3);       // Espera 0.5 TAD para a troca. 
-        AD1CHS = channel & 0x000F;
+        __delay32(6);              // Aguarda 1 TAD para troca segura do mux
+
+        AD1CHSbits.CH0NA = 0;      // Usa VR- (normalmente AVSS) como referência negativa
+
+        // Ajusta canal positivo
+        AD1CHSbits.CH0SA = channel & 0x0F;
     }
+}
+
+//=======================================================================================================================
+// Obtém o índice do canal de ADC
+//=======================================================================================================================
+static int8_t getCalibrationIndex(adcChannel_t channel)
+{
+    if(channel <= ADC_AN5)
+        return channel;
+    else if(channel >= ADC_AN10 && channel <= ADC_AN12)
+        return channel - 4;
+    else
+        return -1; // Canal inválido
 }
 
 //=======================================================================================================================
@@ -51,10 +68,9 @@ static void selectADChannel(adcChannel_t channel)
 //=======================================================================================================================
 static void setADCCalibrationValue(adcChannel_t channel, uint16_t value)
 {
-    if(channel <= ADC_5)
-        calibrationValue[channel] = value;
-    else if((channel >= ADC_10) && (channel <= ADC_12))
-        calibrationValue[channel-4] = value;
+    int8_t index = getCalibrationIndex(channel);
+    if(index >= 0)
+        calibrationValue[index] = value;
 }
 
 //=======================================================================================================================
@@ -62,14 +78,8 @@ static void setADCCalibrationValue(adcChannel_t channel, uint16_t value)
 //=======================================================================================================================
 static uint16_t getADCCalibrationValue(adcChannel_t channel)
 {
-    uint16_t value = 0;
-            
-    if(channel <= ADC_5)
-        value = calibrationValue[channel];
-    else if((channel >= ADC_10) && (channel <= ADC_12))
-        value = calibrationValue[channel-4];
-    
-    return value;
+    int8_t index = getCalibrationIndex(channel);
+    return (index >= 0) ? calibrationValue[index] : 0;
 }
 
 //=======================================================================================================================
@@ -78,10 +88,41 @@ static uint16_t getADCCalibrationValue(adcChannel_t channel)
 static void calibrateADCs(void)
 {
     AD1CON2bits.OFFCAL = 1;  // Inicializa o modo de calibração
-    for(uint8_t index = 0; index <= NUM_OF_ADCS; index++)
-        setADCCalibrationValue(adcList[index], getADCSample(adcList[index]));
+    
+    for(uint8_t index = 0; index < NUM_OF_ADCS; index++)
+    {
+        uint8_t channel = adcList[index];
+        uint16_t sample = getADCSample(channel);
+        setADCCalibrationValue(channel, sample);
+    }
+    
     AD1CON2bits.OFFCAL = 0;  // Finaliza o modo de calibração
 }
+
+//=======================================================================================================================
+// Leitura de valores de um canal qualquer do módulo
+//=======================================================================================================================
+static uint16_t getADCSampleRaw(adcChannel_t channel)
+{
+    if(channel == ADC_ALL)
+        return 0;
+
+    selectADChannel(channel);
+    AD1CON1bits.SAMP = 1;      
+    __delay32(6);              // espera ~3 TAD
+    AD1CON1bits.SAMP = 0;      
+    while(!AD1CON1bits.DONE);
+    return ADC1BUF0 - getADCCalibrationValue(channel);
+}
+
+//=======================================================================================================================
+// Leitura do valor de referência
+//=======================================================================================================================
+static uint16_t readAVssOffset(void)
+{
+    return getADCSampleRaw(ADC_AVSS);  // Canal AVss definido como 0x06
+}
+
 
 //***********************************************************************************************************************
 // Funções públicas
@@ -91,14 +132,19 @@ static void calibrateADCs(void)
 //=======================================================================================================================
 void initADCs(void)
 {
-    AD1CON1 = 0x0000;       // SAMP bit = 0 indica fim da amostragem e início da conversão, mas aqui o módulo não 
-                            // está ligado ainda
-    AD1CHS = 0x0000;        // Selecionando canal 0
-    AD1CSSL = 0;            // Não haverá varredura na leitura das portas analógicas.
-    AD1CON3 = 0x0001;       // Manual Sample, Tad = 2Tcy
-    AD1CON2 = 0x0000;       // Usando as referências de tensão analógica internas. Não serão usadas interrupções aqui.
-    AD1CON1bits.ADON = 1;   // Liga o ADC
-    
+    // --- Configuração dos registradores de controle ---
+    AD1CON1 = 0x0000;       // Modo manual
+    AD1CON2 = 0x0000;       // Referências internas padrão, sem scan
+    AD1CON3 = 0x0001;       // TAD = 2 × Tcy
+
+    // --- Seleção inicial de canal e varredura ---
+    AD1CHS  = 0x0000;       // Começa com AN0
+    AD1CSSL = 0x0000;       // Sem CSSL (scan)
+
+    // --- Habilita o ADC ---
+    AD1CON1bits.ADON = 1;
+
+    // --- Calibração dos canais ---
     calibrateADCs();
 }
 
@@ -128,15 +174,27 @@ void setupADCPinStateList(const ADCSetup_t *list, uint8_t size)
 
 //=======================================================================================================================
 // Obtém uma amostra do ADC
+// Faz uma média das leituras, uma vez que todo ADC SAR é susceptível a ruídos e precisa que sua leitura seja
+// filtrada.
 //=======================================================================================================================
 uint16_t getADCSample(adcChannel_t channel)
 {
-    selectADChannel(channel);
-    AD1CON1bits.SAMP = 1;       // Inicia a amostragem no conversor AD
-    __delay32(6);               // Aguarda 3 TAD, que é o tempo máximo de amostragem segundo o datasheet
-    AD1CON1bits.SAMP = 0;       // Termina a amostragem, entrando automaticamente no período de conversão
-    while(!AD1CON1bits.DONE);   // Aguarda o fim da conversão;
-    return(ADC1BUF0 - getADCCalibrationValue(channel));
+    if (channel == ADC_ALL)
+        return 0;
+
+    // Calcula o erro de offset, para o caso da referência de tensão sofrer variações na leitura
+    // Considera também que estas variações sejam lentas o suficiente para não ser necessário
+    // ler o valor da referência junto com toda leitura.
+    uint16_t offsetError = readAVssOffset() + getADCCalibrationValue(channel);
+
+    uint32_t readingTotal = 0;
+    for (uint8_t i = 0; i < 8; i++)
+    {
+        uint16_t sample = getADCSampleRaw(channel);
+        readingTotal += (sample > offsetError) ? sample - offsetError : 0;
+    }
+
+    return (readingTotal >> 3);
 }
 
 //***********************************************************************************************************************

@@ -10,11 +10,11 @@
 //***********************************************************************************************************************
 // Macros
 //***********************************************************************************************************************
-#define unlockRTCC()                {                               \
+#define unlockRTCC()                do {                            \
                                         NVMKEY = 0x55;              \
                                         NVMKEY = 0xAA;              \
                                         RCFGCALbits.RTCWREN = 1;    \
-                                    }
+                                    } while(0)
 #define lockRTCC()                  RCFGCALbits.RTCWREN = 0
 #define TurnRTCCInterruptOff()      _RTCIE = 0;
 #define TurnRTCCInterruptOn()       _RTCIE = 1;
@@ -71,57 +71,78 @@ void initRTCC(void)
 
 //=======================================================================================================================
 // Escrita de Data/Hora
+// Alterado para tornar uma função atômica
 //=======================================================================================================================
 void writeDateTime(DateTime_t *value)
 {
+    __builtin_disi(0x3FFF);     // Desativa interrupções
     unlockRTCC();
+    
+    RCFGCALbits.RTCEN = 0;      // Desativa o RTC para evitar corrupção
     RCFGCALbits.RTCPTR = 0x03;  // Inicia a leitura apontando para o registrador de ano. O ponteiro é
                                 // decrementado automaticamente.
     RTCVAL = value->w[0];       // Ano
     RTCVAL = value->w[1];       // Mês e dia
     RTCVAL = value->w[2];       // Hora e dia da semana
     RTCVAL = value->w[3];       // Minuto e segundos
+    RCFGCALbits.RTCEN = 1;      // Religa o RTC
     lockRTCC();
+    __builtin_disi(0x0000);     // Reativa interrupções
 }
 
 //=======================================================================================================================
 // Leitura de Data/Hora
+// Alterado para tornar uma função atômica
 //=======================================================================================================================
 void readDateTime(DateTime_t *value)
 {
-    RCFGCALbits.RTCPTR = 0x03;  // Inicia a leitura apontando para o registrador de ano. O ponteiro é
-                                // decrementado automaticamente.
-    value->w[0] = RTCVAL;       // Ano
-    value->w[1] = RTCVAL;       // Mês e dia
-    value->w[2] = RTCVAL;       // Hora e dia da semana
-    value->w[3] = RTCVAL;       // Minuto e segundos
+    __builtin_disi(0x3FFF);       // Desativa interrupções
+    // Aguarda sincronização com o clock do RTC
+    while (RCFGCALbits.RTCSYNC);  // Espera se estiver sincronizando
+    
+    RCFGCALbits.RTCPTR = 0x03;    // Inicia a leitura apontando para o registrador de ano. O ponteiro é
+                                  // decrementado automaticamente.
+    value->w[0] = RTCVAL;         // Ano
+    value->w[1] = RTCVAL;         // Mês e dia
+    value->w[2] = RTCVAL;         // Hora e dia da semana
+    value->w[3] = RTCVAL;         // Minuto e segundos
+    
+    __builtin_disi(0x0000);       // Reativa interrupções
 }
 
 //=======================================================================================================================
 // Escrita de Data/Hora
+// Alterado para tornar a função atômica
 //=======================================================================================================================
 void writeAlarmTime(DateTime_t *value)
 {
+    __builtin_disi(0x3FFF);         // Desabilita interrupções
     unlockRTCC();
+
+    ALCFGRPTbits.ALRMEN = 0;        // Desabilita o alarme       
     ALCFGRPTbits.ALRMPTR = 0x02;    // Inicia a leitura apontando para o registrador de ano. O ponteiro é
-    ALCFGRPTbits.ALRMEN = 0;        // decrementado automaticamente.
+                                    // decrementado automaticamente.
     ALRMVAL = value->w[1];          // Mês e dia
     ALRMVAL = value->w[2];          // Hora e dia da semana
     ALRMVAL = value->w[3];          // Minuto e segundos
-    ALCFGRPTbits.ALRMEN = 1;
+    ALCFGRPTbits.ALRMEN = 1;        // Reabilita o alarme
     lockRTCC();
+    __builtin_disi(0x0000);         // Reabilita interrupções
 }
 
 //=======================================================================================================================
 // Leitura de Data/Hora
+// Alterado para tornar a função atômica
 //=======================================================================================================================
 void readAlarmTime(DateTime_t *value)
 {
+    __builtin_disi(0x3FFF);         // Desabilita interrupções
     ALCFGRPTbits.ALRMPTR = 0x02;    // Inicia a leitura apontando para o registrador de ano. O ponteiro é
                                     // decrementado automaticamente.
     value->w[1] = ALRMVAL;          // Mês e dia
     value->w[2] = ALRMVAL;          // Hora e dia da semana
     value->w[3] = ALRMVAL;          // Minuto e segundos
+    __builtin_disi(0x0000);         // Reabilita interrupções
 }
 
 //=======================================================================================================================
@@ -155,6 +176,23 @@ uint8_t isRTCCUpdated(void)
 uint16_t bcdToInt(uint8_t data)
 {
     return ((((data & 0xF0) >> 4) * 10) + (data & 0x0F));
+}
+
+//=======================================================================================================================
+// Testa a validade da data e hora fornecida
+//=======================================================================================================================
+uint8_t isTimeDateValid(DateTime_t *value)
+{
+    uint8_t isValid = 1;
+    
+    isValid &= (uint8_t)(bcdToInt(value->Time.day) < 32);
+    isValid &= (uint8_t)(bcdToInt(value->Time.hours) < 24);
+    isValid &= (uint8_t)(bcdToInt(value->Time.minutes) < 60);
+    isValid &= (uint8_t)(bcdToInt(value->Time.month) < 13);
+    isValid &= (uint8_t)(bcdToInt(value->Time.seconds) < 60);
+    isValid &= (uint8_t)(bcdToInt(value->Time.weekday) < 7);
+    
+    return isValid;
 }
 
 //=======================================================================================================================

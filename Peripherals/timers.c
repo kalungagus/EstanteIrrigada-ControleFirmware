@@ -6,6 +6,12 @@
 #include <xc.h>
 
 //***********************************************************************************************************************
+// Macros internas
+//***********************************************************************************************************************
+#define ENTER_CRITICAL_SECTION()  uint8_t _intStat = _T1IE; _T1IE = 0
+#define EXIT_CRITICAL_SECTION()   _T1IE = _intStat
+
+//***********************************************************************************************************************
 // Variáveis privadas do módulo
 //***********************************************************************************************************************
 volatile uint32_t timer1Interrupts;
@@ -47,14 +53,22 @@ uint8_t getTimerState(void)
 //=======================================================================================================================
 uint32_t getTimerInterruptCount(void)
 {
-    uint32_t value;
-    uint8_t timerStatus;
-    
-    timerStatus = _T1IE;
-    _T1IE = 0;
-    value = timer1Interrupts;
-    _T1IE = timerStatus;
+    ENTER_CRITICAL_SECTION();
+    uint32_t value = timer1Interrupts;
+    EXIT_CRITICAL_SECTION();
     return(value);
+}
+
+//=======================================================================================================================
+// Retorna a diferença de tempo do tempo fornecido para o tempo atual do Timmer
+//=======================================================================================================================
+uint32_t getElapsedTimeSince(uint32_t timeBase)
+{
+    ENTER_CRITICAL_SECTION();
+    uint32_t now = timer1Interrupts;
+    EXIT_CRITICAL_SECTION();
+    
+    return now - timeBase;
 }
 
 //=======================================================================================================================

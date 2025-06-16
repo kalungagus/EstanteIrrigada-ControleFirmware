@@ -10,20 +10,25 @@
 // Definições
 //***********************************************************************************************************************
 //=======================================================================================================================
-// Estatos do TIME-OUT
+// Estados do TIME-OUT
 //=======================================================================================================================
 #define TIME_OUT_DISABLED               0
 #define TIME_OUT_ENABLED                1
 #define FORCE_TIMEOUT                   2
+
+//=======================================================================================================================
+// Erros de inicialização
+//=======================================================================================================================
+#define LORA_ERROR                      3
 
 //***********************************************************************************************************************
 // Funções públicas da aplicação principal, que podem ser acessadas pelas aplicações filho
 //***********************************************************************************************************************
 extern uint8_t saveConfiguration(void);
 extern void deepSleep(void);
-extern void forceTaskSetup(void);
-extern void resetTimeOut(void);
-extern void setTimeOutState(uint8_t state);
+extern void callTaskScheduler(void);
+extern void resetDeepSleepTimeOut(void);
+extern void setDeepSleepTimeOutState(uint8_t state);
 
 #endif	/* PARENT_APPLICATION */
 //***********************************************************************************************************************

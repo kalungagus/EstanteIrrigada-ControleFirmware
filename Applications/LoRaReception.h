@@ -31,6 +31,14 @@
 #define CMD_POWER_DOWN           0x07
 #define CMD_REQUEST_ACTION       0x08
 #define CMD_SET_TIMEOUT          0x09
+#define CMD_UNKNOWN              0xFF
+
+//=======================================================================================================================
+// Flags da task Communication
+//=======================================================================================================================
+#define FLAGS_NO_TRANSMITION     0x00
+#define FLAGS_REQUEST_CALENDAR   0x01
+#define FLAGS_REQUEST_MESSAGES   0x02
 
 //***********************************************************************************************************************
 // Tipos de variáveis relacionadas ao módulo de recepção e transmissão LoRa
@@ -49,7 +57,7 @@ typedef struct
 //***********************************************************************************************************************
 // Funções públicas do módulo
 //***********************************************************************************************************************
-extern void taskLoRaReception(uint8_t *requestCalendar, uint8_t *requestMessages);
+extern void taskCommunication(uint8_t flags);
 extern void sendPacket(unsigned char cmd, unsigned char *payload, uint8_t payloadSize);
 extern void sendAck(unsigned char cmd);
 extern void sendNack(unsigned char cmd);

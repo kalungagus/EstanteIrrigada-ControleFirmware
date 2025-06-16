@@ -17,5 +17,6 @@ extern void setTimerState(uint8_t state);
 extern uint8_t getTimerState(void);
 extern uint32_t getTimerInterruptCount(void);
 extern void initTimers(void);
+extern uint32_t getElapsedTimeSince(uint32_t timeBase);
 
 #endif

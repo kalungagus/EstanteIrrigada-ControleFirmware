@@ -20,6 +20,19 @@
 #define SENSOR_CONTROLS_VALVE           2
 #define FORCE_VALVE_ON                  3
 #define FORCE_VALVE_OFF                 4
+#define SENSOR_CONTROLS_DERIVATIVE      5
+
+//=======================================================================================================================
+// Estado das válvulas
+//=======================================================================================================================
+#define VALVES_OFF                      0
+#define VALVES_ON                       1
+
+//=======================================================================================================================
+// Flags da task SensorHandling
+//=======================================================================================================================
+#define SENSOR_TASK_NO_TRANSMISSION     0
+#define SENSOR_TASK_SEND_SAMPLES        1
 
 //***********************************************************************************************************************
 // Tipos de variáveis relacionadas ao módulo de gerenciamento de sensores
@@ -51,6 +64,7 @@ typedef struct
 // Funções públicas do módulo
 //***********************************************************************************************************************
 extern void initTaskSensorHandling(uint16_t activityPinID, uint16_t enablePinID);
-extern void taskSensorHandling(uint8_t *sendSamples, uint8_t *readSensors, uint8_t *valveActivated);
+extern void taskSensorHandling(uint8_t sendSamples);
+extern uint8_t isAnyValveOn(void);
 
 #endif /* APPLICATION_SENSOR_HANDLING */

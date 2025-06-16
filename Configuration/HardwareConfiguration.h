@@ -12,7 +12,10 @@
 //***********************************************************************************************************************
 #define FCY                     16000000    // Frequência das instruções = FCLOCK / 2
 #define APPLICATION_TIME_OUT    2000        // Fica no máximo 1000ms (1s) ligado
+#define HISTORY_DEPTH           2           // Quantidade de pontos para cálculo de derivada
+#define DERIVATIVE_THRESHOLD    2           // Sensor está estabilizando se variação for pequena
 #define MAX_SENSORS             6
+#define EEPROM_WORD_COUNT       128         // Quantidade de palavras de 2 bytes para a EEPROM
 
 //***********************************************************************************************************************
 // Configurações de Comunicação
@@ -48,17 +51,17 @@
 // Definições de pinos leitura dos sensores
 //=======================================================================================================================
 #define SENSOR0         IO_A0
-#define SENSOR0_ADC     ADC_0
+#define SENSOR0_ADC     ADC_AN0
 #define SENSOR1         IO_A1
-#define SENSOR1_ADC     ADC_1
+#define SENSOR1_ADC     ADC_AN1
 #define SENSOR2         IO_B0
-#define SENSOR2_ADC     ADC_2
+#define SENSOR2_ADC     ADC_AN2
 #define SENSOR3         IO_B1
-#define SENSOR3_ADC     ADC_3
+#define SENSOR3_ADC     ADC_AN3
 #define SENSOR4         IO_B2
-#define SENSOR4_ADC     ADC_4
+#define SENSOR4_ADC     ADC_AN4
 #define SENSOR5         IO_B3
-#define SENSOR5_ADC     ADC_5
+#define SENSOR5_ADC     ADC_AN5
 
 #endif	/* IO_PIN_DEFINITIONS */
 //***********************************************************************************************************************

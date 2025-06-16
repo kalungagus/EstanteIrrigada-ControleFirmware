@@ -71,6 +71,7 @@
 // Variáveis privadas do módulo
 //***********************************************************************************************************************
 static IOPort_t ioLoRaReset = {.ID = IO_UNDEFINED}, ioLoRaNSS = {.ID = IO_UNDEFINED};
+static uint8_t isModulePresent = 0;
 
 //***********************************************************************************************************************
 // Funções privadas
@@ -111,11 +112,14 @@ static uint8_t readLoRaRegister(uint8_t address)
 //=======================================================================================================================
 static void setLoRaFrequency(long frequency)
 {
-    uint64_t frf = ((uint64_t)frequency << 19) / 32000000;
-    
-    writeLoRaRegister(REG_FRF_MSB, (uint8_t)(frf >> 16));
-    writeLoRaRegister(REG_FRF_MID, (uint8_t)(frf >> 8));
-    writeLoRaRegister(REG_FRF_LSB, (uint8_t)(frf >> 0));
+    if(isModulePresent)
+    {
+        uint64_t frf = ((uint64_t)frequency << 19) / 32000000;
+
+        writeLoRaRegister(REG_FRF_MSB, (uint8_t)(frf >> 16));
+        writeLoRaRegister(REG_FRF_MID, (uint8_t)(frf >> 8));
+        writeLoRaRegister(REG_FRF_LSB, (uint8_t)(frf >> 0));
+    }
 }
 
 //=======================================================================================================================
@@ -123,25 +127,29 @@ static void setLoRaFrequency(long frequency)
 //=======================================================================================================================
 static void setLoRaOpMode(uint8_t mode)
 {
-  writeLoRaRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | mode);
+    if(isModulePresent)
+        writeLoRaRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | mode);
 }
 //=======================================================================================================================
 // Lê um registrador
 //=======================================================================================================================
 static void setOCP(uint8_t mA)
 {
-    uint8_t ocpTrim = 27;
+    if(isModulePresent)
+    {
+        uint8_t ocpTrim = 27;
 
-    if (mA <= 120) 
-    {
-        ocpTrim = (mA - 45) / 5;
-    } 
-    else if (mA <=240)
-    {
-        ocpTrim = (mA + 30) / 10;
+        if (mA <= 120) 
+        {
+            ocpTrim = (mA - 45) / 5;
+        } 
+        else if (mA <=240)
+        {
+            ocpTrim = (mA + 30) / 10;
+        }
+
+        writeLoRaRegister(REG_OCP, 0x20 | (0x1F & ocpTrim));
     }
-
-    writeLoRaRegister(REG_OCP, 0x20 | (0x1F & ocpTrim));
 }
 
 //=======================================================================================================================
@@ -149,40 +157,43 @@ static void setOCP(uint8_t mA)
 //=======================================================================================================================
 static void setLoRaTxPower(int8_t level, uint8_t outputPin)
 {
-    if (PA_OUTPUT_RFO_PIN == outputPin)  // RFO
+    if(isModulePresent)
     {
-        if (level < 0)
-            level = 0;
-        else if (level > 14)
-            level = 14;
-
-        writeLoRaRegister(REG_PA_CONFIG, 0x70 | level);
-    }
-    else // PA BOOST
-    {
-        if (level > 17) 
+        if (PA_OUTPUT_RFO_PIN == outputPin)  // RFO
         {
-            if (level > 20)
-                level = 20;
+            if (level < 0)
+                level = 0;
+            else if (level > 14)
+                level = 14;
 
-            // Diminui 3 do nível para que a diferença 18 - 20 seja mapeada para 15 - 17
-            level -= 3;
-
-            // High Power +20 dBm Operation (Semtech SX1276/77/78/79 5.4.3.)
-            writeLoRaRegister(REG_PA_DAC, 0x87);
-            setOCP(140);
+            writeLoRaRegister(REG_PA_CONFIG, 0x70 | level);
         }
-        else 
+        else // PA BOOST
         {
-            if (level < 2) 
-                level = 2;
+            if (level > 17) 
+            {
+                if (level > 20)
+                    level = 20;
 
-            // Valor padrão PA_HF/LF or +17dBm
-            writeLoRaRegister(REG_PA_DAC, 0x84);
-            setOCP(100);
+                // Diminui 3 do nível para que a diferença 18 - 20 seja mapeada para 15 - 17
+                level -= 3;
+
+                // High Power +20 dBm Operation (Semtech SX1276/77/78/79 5.4.3.)
+                writeLoRaRegister(REG_PA_DAC, 0x87);
+                setOCP(140);
+            }
+            else 
+            {
+                if (level < 2) 
+                    level = 2;
+
+                // Valor padrão PA_HF/LF or +17dBm
+                writeLoRaRegister(REG_PA_DAC, 0x84);
+                setOCP(100);
+            }
+
+            writeLoRaRegister(REG_PA_CONFIG, PA_BOOST | (level - 2));
         }
-
-        writeLoRaRegister(REG_PA_CONFIG, PA_BOOST | (level - 2));
     }
 }
 
@@ -191,10 +202,13 @@ static void setLoRaTxPower(int8_t level, uint8_t outputPin)
 //=======================================================================================================================
 static void setLoRaPacketMode(uint8_t mode)
 {
-    if(mode == EXPLICIT_MODE)
-        writeLoRaRegister(REG_MODEM_CONFIG_1, readLoRaRegister(REG_MODEM_CONFIG_1) & 0xFE);
-    else
-        writeLoRaRegister(REG_MODEM_CONFIG_1, readLoRaRegister(REG_MODEM_CONFIG_1) | 0x01);
+    if(isModulePresent)
+    {
+        if(mode == EXPLICIT_MODE)
+            writeLoRaRegister(REG_MODEM_CONFIG_1, readLoRaRegister(REG_MODEM_CONFIG_1) & 0xFE);
+        else
+            writeLoRaRegister(REG_MODEM_CONFIG_1, readLoRaRegister(REG_MODEM_CONFIG_1) | 0x01);
+    }
 }
 
 //***********************************************************************************************************************
@@ -216,17 +230,19 @@ uint8_t initLoRa(uint16_t resetPinID, uint16_t NSSPinID)
     writePin(ioLoRaReset, PIN_OFF);  // Reseta o módulo LoRa
     __delay_ms(10);
     writePin(ioLoRaReset, PIN_ON);  // Liga o módulo LoRa
-    __delay_ms(10);                 // Tempo necessário para o módulo entrar em funcionamento.
+    __delay_ms(100);                // Tempo necessário para o módulo entrar em funcionamento.
     
     version = readLoRaRegister(REG_VERSION);
     if(version != 0x12)
-        return 0;
+        return isModulePresent;
+    
+    isModulePresent = 1;
 
     // O modo LoRa só pode ser setado quando o chip está em modo Sleep.
     // O modo Sleep também limpa todo o conteúdo dos buffers
     setLoRaOpMode(MODE_SLEEP);
     
-    setLoRaFrequency(433E6);
+    setLoRaFrequency(433000000);
     // Define os endereços base para os buffers
     writeLoRaRegister(REG_FIFO_TX_BASE_ADDR, 0);
     writeLoRaRegister(REG_FIFO_RX_BASE_ADDR, 0);
@@ -237,12 +253,12 @@ uint8_t initLoRa(uint16_t resetPinID, uint16_t NSSPinID)
     // Liga o controle automático de ganho
     writeLoRaRegister(REG_MODEM_CONFIG_3, 0x04);
     
-    setLoRaTxPower(17, PA_OUTPUT_PA_BOOST_PIN);
+    setLoRaTxPower(10, PA_OUTPUT_PA_BOOST_PIN);     // Testando com 10mdB
     
     // Inicia o modo padrão de operação do módulo.
     setLoRaOpMode(MODE_STDBY);
     
-    return 1;
+    return isModulePresent;
 }
 
 //=======================================================================================================================
@@ -250,14 +266,17 @@ uint8_t initLoRa(uint16_t resetPinID, uint16_t NSSPinID)
 //=======================================================================================================================
 uint8_t isLoRaTransmitting(void)
 {
-  // Verifica se ainda está em modo de transmissão 
-  if ((readLoRaRegister(REG_OP_MODE) & MODE_TX) == MODE_TX) 
-    return 1;
+  if(isModulePresent)
+  {
+    // Verifica se ainda está em modo de transmissão 
+    if ((readLoRaRegister(REG_OP_MODE) & MODE_TX) == MODE_TX) 
+      return 1;
 
-  // Limpa o flag de interrupção, caso esteja setado.
-  if (readLoRaRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) 
-    writeLoRaRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
-
+    // Limpa o flag de interrupção, caso esteja setado.
+    if (readLoRaRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) 
+      writeLoRaRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
+  }
+  
   return 0;
 }
 
@@ -266,17 +285,20 @@ uint8_t isLoRaTransmitting(void)
 //=======================================================================================================================
 uint8_t beginLoRaPacket(uint8_t implicitHeader)
 {
-    if (isLoRaTransmitting())
-        return 0;
+    if(isModulePresent)
+    {
+        if (isLoRaTransmitting())
+            return 0;
 
-    // Coloca o módulo em modo Standby para transmissão.
-    setLoRaOpMode(MODE_STDBY);
+        // Coloca o módulo em modo Standby para transmissão.
+        setLoRaOpMode(MODE_STDBY);
 
-    setLoRaPacketMode(implicitHeader);
+        setLoRaPacketMode(implicitHeader);
 
-    // Reseta os endereços de escrita e tamanho do payload
-    writeLoRaRegister(REG_FIFO_ADDR_PTR, 0);
-    writeLoRaRegister(REG_PAYLOAD_LENGTH, 0);
+        // Reseta os endereços de escrita e tamanho do payload
+        writeLoRaRegister(REG_FIFO_ADDR_PTR, 0);
+        writeLoRaRegister(REG_PAYLOAD_LENGTH, 0);
+    }
 
     return 1;
 }
@@ -286,20 +308,27 @@ uint8_t beginLoRaPacket(uint8_t implicitHeader)
 //=======================================================================================================================
 uint8_t loadBufferToLoRa(uint8_t *buffer, uint8_t size)
 {
-    uint8_t currentLength = readLoRaRegister(REG_PAYLOAD_LENGTH);
+    uint8_t sentDataIndex;
+            
+    if(isModulePresent)
+    {
+        uint8_t currentLength = readLoRaRegister(REG_PAYLOAD_LENGTH);
 
-    // Garante que o pacote atual não vai ser escrito além dos limites do buffer do módulo LoRa
-    if ((currentLength + size) > MAX_PKT_LENGTH)
-        size = MAX_PKT_LENGTH - currentLength;
+        // Garante que o pacote atual não vai ser escrito além dos limites do buffer do módulo LoRa
+        if ((currentLength + size) > MAX_PKT_LENGTH)
+            size = MAX_PKT_LENGTH - currentLength;
 
-    // Escreve os dados
-    for(uint8_t index = 0; index < size; index++)
-        writeLoRaRegister(REG_FIFO, buffer[index]);
+        // Escreve os dados
+        for(uint8_t sentDataIndex = 0; sentDataIndex < size; sentDataIndex++)
+            writeLoRaRegister(REG_FIFO, buffer[sentDataIndex]);
 
-    // Atualiza tamanho do Payload
-    writeLoRaRegister(REG_PAYLOAD_LENGTH, currentLength + size);
-
-    return(size);
+        // Atualiza tamanho do Payload
+        writeLoRaRegister(REG_PAYLOAD_LENGTH, currentLength + size);
+    }
+    else
+        sentDataIndex = size;
+    
+    return(sentDataIndex);
 }
 
 //=======================================================================================================================
@@ -307,7 +336,10 @@ uint8_t loadBufferToLoRa(uint8_t *buffer, uint8_t size)
 //=======================================================================================================================
 uint8_t writeByteToLora(uint8_t byte)
 {
-    return loadBufferToLoRa(&byte, sizeof(byte));
+    if(isModulePresent)
+        return loadBufferToLoRa(&byte, sizeof(byte));
+    else
+        return sizeof(byte);
 }
 
 //=======================================================================================================================
@@ -315,11 +347,14 @@ uint8_t writeByteToLora(uint8_t byte)
 //=======================================================================================================================
 void endLoRaPacket(void)
 {
-    // Coloca o módulo em modo de transmissão
-    setLoRaOpMode(MODE_TX);
-    
-    while ((readLoRaRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) == 0);
-    writeLoRaRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
+    if(isModulePresent)
+    {
+        // Coloca o módulo em modo de transmissão
+        setLoRaOpMode(MODE_TX);
+
+        while ((readLoRaRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) == 0);
+        writeLoRaRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
+    }
 }
 
 //=======================================================================================================================
@@ -327,28 +362,32 @@ void endLoRaPacket(void)
 //=======================================================================================================================
 uint8_t checkLoRaReception(void)
 {
-    uint8_t irqFlags = readLoRaRegister(REG_IRQ_FLAGS);
     uint8_t packetLength = 0;
     
-    // Limpa os flags de interrupção
-    writeLoRaRegister(REG_IRQ_FLAGS, irqFlags);
-    
-    // Pacote recebido
-    if((irqFlags & IRQ_RX_DONE_MASK) && (irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK) == 0)
+    if(isModulePresent)
     {
-        packetLength = readLoRaRegister(REG_RX_NB_BYTES);
+        uint8_t irqFlags = readLoRaRegister(REG_IRQ_FLAGS);
         
-        // Define o endereço de leitura para o endereço atual
-        writeLoRaRegister(REG_FIFO_ADDR_PTR, readLoRaRegister(REG_FIFO_RX_CURRENT_ADDR));
-        
-        // Coloca o módulo em modo Standby para transmissão.
-        setLoRaOpMode(MODE_STDBY);
-    }
-    else if(readLoRaRegister(REG_OP_MODE) != (MODE_LONG_RANGE_MODE | MODE_RX_SINGLE))  // Não está em modo de recepção
-    {
-        // Reseta o endereço da FIFO
-        writeLoRaRegister(REG_FIFO_ADDR_PTR, 0);
-        setLoRaOpMode(MODE_RX_SINGLE);
+        // Limpa os flags de interrupção
+        writeLoRaRegister(REG_IRQ_FLAGS, irqFlags);
+
+        // Pacote recebido
+        if((irqFlags & IRQ_RX_DONE_MASK) && (irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK) == 0)
+        {
+            packetLength = readLoRaRegister(REG_RX_NB_BYTES);
+
+            // Define o endereço de leitura para o endereço atual
+            writeLoRaRegister(REG_FIFO_ADDR_PTR, readLoRaRegister(REG_FIFO_RX_CURRENT_ADDR));
+
+            // Coloca o módulo em modo Standby para transmissão.
+            setLoRaOpMode(MODE_STDBY);
+        }
+        else if(readLoRaRegister(REG_OP_MODE) != (MODE_LONG_RANGE_MODE | MODE_RX_SINGLE))  // Não está em modo de recepção
+        {
+            // Reseta o endereço da FIFO
+            writeLoRaRegister(REG_FIFO_ADDR_PTR, 0);
+            setLoRaOpMode(MODE_RX_SINGLE);
+        }
     }
     
     return(packetLength);
@@ -359,14 +398,19 @@ uint8_t checkLoRaReception(void)
 //=======================================================================================================================
 uint8_t LoRaBytesAvailable(void)
 {
-    uint8_t baseAddres = readLoRaRegister(REG_FIFO_RX_BASE_ADDR);
-    uint8_t currentAddress = readLoRaRegister(REG_FIFO_ADDR_PTR);
-    uint8_t quantBytes = readLoRaRegister(REG_RX_NB_BYTES);
+    uint8_t bytesAvailable = 0;
     
-    if(quantBytes > (currentAddress - baseAddres))
-        return (quantBytes - (currentAddress - baseAddres));
-    else
-        return(0);
+    if(isModulePresent)
+    {
+        uint8_t baseAddres = readLoRaRegister(REG_FIFO_RX_BASE_ADDR);
+        uint8_t currentAddress = readLoRaRegister(REG_FIFO_ADDR_PTR);
+        uint8_t quantBytes = readLoRaRegister(REG_RX_NB_BYTES);
+
+        if(quantBytes > (currentAddress - baseAddres))
+            bytesAvailable = quantBytes - (currentAddress - baseAddres);
+    }
+    
+    return(bytesAvailable);
 }
 
 //=======================================================================================================================
@@ -374,9 +418,12 @@ uint8_t LoRaBytesAvailable(void)
 //=======================================================================================================================
 uint8_t readByteFromLoRa(void)
 {
-    if(!LoRaBytesAvailable())
-        return(0xFF);
-    return readLoRaRegister(REG_FIFO);
+    uint8_t data = 0xFF;
+    
+    if(isModulePresent && LoRaBytesAvailable())
+        data = readLoRaRegister(REG_FIFO);
+    
+    return(data);
 }
 
 //=======================================================================================================================
@@ -384,8 +431,11 @@ uint8_t readByteFromLoRa(void)
 //=======================================================================================================================
 void loraPowerDown(void)
 {
-    // Coloca o módulo em modo Sleep para reduzir consumo.
-    setLoRaOpMode(MODE_SLEEP);
+    if(isModulePresent)
+    {
+        // Coloca o módulo em modo Sleep para reduzir consumo.
+        setLoRaOpMode(MODE_SLEEP);
+    }
 }
 
 //***********************************************************************************************************************

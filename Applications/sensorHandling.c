@@ -7,7 +7,20 @@
 #include "LoRaReception.h"
 #include <libpic30.h>
 #include <string.h>
+#include <stdlib.h>
 
+//***********************************************************************************************************************
+// Definição de tipos internos ao módulo
+//***********************************************************************************************************************
+typedef struct 
+{
+    uint16_t previousValues[HISTORY_DEPTH];
+    uint8_t currentIndex;
+} SensorHistory_t;
+
+//***********************************************************************************************************************
+// Propriedades do módulo
+//***********************************************************************************************************************
 //=======================================================================================================================
 // Propriedades da aplicação pai que precisam ser acessadas neste módulo
 //=======================================================================================================================
@@ -17,7 +30,9 @@ extern controlConfig_t controlList[6];
 // Variáveis privadas do módulo
 //=======================================================================================================================
 static Sample_t actualSampling;
+static SensorHistory_t sensorHistory[MAX_SENSORS];
 static IOPort_t ioSensorProcessing = {.ID = IO_UNDEFINED}, ioSensorEn = {.ID = IO_UNDEFINED};
+static uint8_t valvesState = VALVES_OFF;
 
 //***********************************************************************************************************************
 // Funções privadas
@@ -56,15 +71,103 @@ static void setValveState(IOPort_t valvePin, uint8_t state)
 }
 
 //=======================================================================================================================
-// Faz a leitura de um sensor utilizando um filtro de médias
-// Definido para uma média de 8 valores para que a rotina seja executada de forma rápida
+// Atualiza o registro de leituras dos sensores para monitoramento da derivada do sinal de entrada
 //=======================================================================================================================
-static uint16_t getSensorReading(adcChannel_t sensorChannel)
+void updateSensorHistory(uint8_t index, uint16_t newValue) 
 {
-    uint16_t readingTotal = 0;
-    for(uint8_t index = 0; index < 8; index++)
-        readingTotal += getADCSample(sensorChannel);
-    return(readingTotal >> 3);
+    sensorHistory[index].currentIndex = (sensorHistory[index].currentIndex + 1) % HISTORY_DEPTH;
+    sensorHistory[index].previousValues[sensorHistory[index].currentIndex] = newValue;
+}
+
+//=======================================================================================================================
+// Calcula a derivada do sinal lido
+//=======================================================================================================================
+int16_t getSensorDerivative(uint8_t index) 
+{
+    uint16_t prev = sensorHistory[index].previousValues[(sensorHistory[index].currentIndex + 1) % HISTORY_DEPTH];
+    uint16_t curr = sensorHistory[index].previousValues[sensorHistory[index].currentIndex];
+    return (int16_t)(curr - prev); // pode ser positivo ou negativo
+}
+
+//=======================================================================================================================
+// Processamento de controle automático de irrigação com derivada
+//=======================================================================================================================
+void sensorControlsValveWithDerivative(uint8_t index)
+{
+    if(controlList[index].lastState == PIN_ON)
+    {
+        updateSensorHistory(index, actualSampling.value[index]);
+        
+        int16_t delta = getSensorDerivative(index);
+        if(actualSampling.value[index] > controlList[index].maxThreshold || abs(delta) <= DERIVATIVE_THRESHOLD)
+        {
+            setValveState(controlList[index].valvePin, PIN_OFF);
+            actualSampling.state[index] = PIN_OFF;
+            controlList[index].lastState = PIN_OFF;
+        }
+    }
+    if(controlList[index].lastState == PIN_OFF && actualSampling.value[index] < controlList[index].minThreshold)
+    {
+        setValveState(controlList[index].valvePin, PIN_ON);
+        actualSampling.state[index] = PIN_ON;
+        controlList[index].lastState = PIN_ON;
+        
+        // Inicializa os valores do histórico com o threshold máximo, já que estamos abaixo do mínimo.
+        // Assim a derivada calculada quando a válvula estiver ligada vai resultar em um número
+        // grande e não vai desativar a válvula antes de atuar.
+        for(uint8_t clearIndex = 0; clearIndex < HISTORY_DEPTH; clearIndex++)
+            sensorHistory[index].previousValues[clearIndex] = controlList[index].maxThreshold;
+
+        sensorHistory[index].currentIndex = 0;
+    }
+}
+
+//=======================================================================================================================
+// Processamento de controle automático de irrigação
+//=======================================================================================================================
+void sensorControlsValve(uint8_t index)
+{
+    if((controlList[index].lastState == PIN_ON) && actualSampling.value[index] > controlList[index].maxThreshold)
+    {
+        setValveState(controlList[index].valvePin, PIN_OFF);
+        actualSampling.state[index] = PIN_OFF;
+        controlList[index].lastState = PIN_OFF;
+    }
+    if(controlList[index].lastState == PIN_OFF && actualSampling.value[index] < controlList[index].minThreshold)
+    {
+        setValveState(controlList[index].valvePin, PIN_ON);
+        actualSampling.state[index] = PIN_ON;
+        controlList[index].lastState = PIN_ON;
+        
+        // Mesmo que não seja usada a derivada aqui, estamos inicializando a estrutura para o caso
+        // do usuário mudar de um para outro modo de controle.
+        // Inicializa os valores do histórico com o threshold máximo, já que estamos abaixo do mínimo.
+        // Assim a derivada calculada quando a válvula estiver ligada vai resultar em um número
+        // grande e não vai desativar a válvula antes de atuar.
+        for(uint8_t clearIndex = 0; clearIndex < HISTORY_DEPTH; clearIndex++)
+            sensorHistory[index].previousValues[clearIndex] = controlList[index].maxThreshold;
+
+        sensorHistory[index].currentIndex = 0;
+    }
+}
+//=======================================================================================================================
+// Válvula é forçada a ficar sempre ligada
+//=======================================================================================================================
+void forceValveOn(uint8_t index)
+{
+    setValveState(controlList[index].valvePin, PIN_ON);
+    actualSampling.state[index] = PIN_ON;
+    controlList[index].lastState = PIN_ON;
+}
+
+//=======================================================================================================================
+// Válvula é forçada a ficar sempre desligada
+//=======================================================================================================================
+void forceValveOff(uint8_t index)
+{
+    setValveState(controlList[index].valvePin, PIN_OFF);
+    actualSampling.state[index] = PIN_OFF;
+    controlList[index].lastState = PIN_OFF;
 }
 
 //***********************************************************************************************************************
@@ -80,77 +183,66 @@ void initTaskSensorHandling(uint16_t activityPinID, uint16_t enablePinID)
     ioSensorProcessing.ID = activityPinID;
     ioSensorEn.ID = enablePinID;
     memset(&actualSampling, 0, sizeof(Sample_t));
+    memset(&sensorHistory, 0, sizeof(sensorHistory));
     now.Time.seconds = intToBcd(0);
     now.Time.minutes = intToBcd(0);
     writeAlarmTime(&now);
 }
 
 //-----------------------------------------------------------------------------------------------------------------------
+// Verifica se há alguma válvula ligada
+//-----------------------------------------------------------------------------------------------------------------------
+uint8_t isAnyValveOn(void)
+{
+    return valvesState;
+}
+
+//-----------------------------------------------------------------------------------------------------------------------
 // Tarefa principal desta aplicação, verificar os sensores ativos e atuar nas válvulas relacionadas.
 //-----------------------------------------------------------------------------------------------------------------------
-void taskSensorHandling(uint8_t *sendSamples, uint8_t *readSensors, uint8_t *valveActivated)
+void taskSensorHandling(uint8_t sendSamples)
 {
-    if((*sendSamples != 0) || (*readSensors != 0))
+    writePin(ioSensorProcessing, PIN_ON);          // Sinaliza verificação de sensores
+    readDateTime(&actualSampling.instant);         // Lê data/hora para os registros
+    
+    // Leitura dos sensores. A leitura é feita para todos os sensores, antes do processamento,
+    // para manter a fonte dos sensores ligada o menor tempo possível.
+    setSensorSourceState(1);    // Liga a fonte dos sensores
+    for(int8_t index = 0; index < MAX_SENSORS; index++)
+        actualSampling.value[index] = (controlList[index].operation != CONTROL_DISABLED) ? getADCSample(controlList[index].sensorADC) : 0x0000;
+    setSensorSourceState(0);    // Desliga a fonte dos sensores
+
+    valvesState = VALVES_OFF;
+
+    // Processamento das leituras, com os sensores desligados.
+    for(int8_t index = 0; index < MAX_SENSORS; index++)
     {
-        writePin(ioSensorProcessing, PIN_ON);          // Sinaliza verificação de sensores
-        readDateTime(&actualSampling.instant);         // Lê data/hora para os registros
-
-        // Leitura dos sensores. A leitura é feita para todos os sensores, antes do processamento,
-        // para manter a fonte dos sensores ligada o menor tempo possível.
-        setSensorSourceState(1);    // Liga a fonte dos sensores
-        for(int8_t index = 0; index < 6; index++)
-            actualSampling.value[index] = (controlList[index].operation != CONTROL_DISABLED) ? getSensorReading(controlList[index].sensorADC) : 0x0000;
-        setSensorSourceState(0);    // Desliga a fonte dos sensores
-
-        *valveActivated = 0;
-        
-        // Processamento das leituras, com os sensores desligados.
-        for(int8_t index = 0; index < 6; index++)
+        switch(controlList[index].operation)
         {
-            if(controlList[index].operation == SENSOR_CONTROLS_VALVE)
-            {
-                if(controlList[index].lastState == PIN_ON && actualSampling.value[index] > controlList[index].maxThreshold)
-                {
-                    setValveState(controlList[index].valvePin, PIN_OFF);
-                    actualSampling.state[index] = PIN_OFF;
-                    controlList[index].lastState = PIN_OFF;
-                }
-                if(controlList[index].lastState == PIN_OFF && actualSampling.value[index] < controlList[index].minThreshold)
-                {
-                    setValveState(controlList[index].valvePin, PIN_ON);
-                    actualSampling.state[index] = PIN_ON;
-                    controlList[index].lastState = PIN_ON;
-                }
-                
-                // Uma válvula foi ativada, sinaliza isto para a aplicação.
-                if(controlList[index].lastState == PIN_ON)
-                {
-                    *valveActivated = 1;
-                }
-            }
-            else if(controlList[index].operation == FORCE_VALVE_ON)
-            {
-                setValveState(controlList[index].valvePin, PIN_ON);
-                actualSampling.state[index] = PIN_ON;
-                controlList[index].lastState = PIN_ON;
-                *valveActivated = 1;
-            }
-            else
-            {
-                setValveState(controlList[index].valvePin, PIN_OFF);
-                actualSampling.state[index] = PIN_OFF;
-                controlList[index].lastState = PIN_OFF;
-            }
+            case SENSOR_CONTROLS_VALVE:
+                sensorControlsValve(index);
+                break;
+            case FORCE_VALVE_ON:
+                forceValveOn(index);
+                break;
+            case SENSOR_CONTROLS_DERIVATIVE:
+                sensorControlsValveWithDerivative(index);
+                break;
+            default:
+                forceValveOff(index);
+                break;
         }
-
-        // Envia um pacote de dados de amostras quando for requerido
-        if(*sendSamples != 0)
-            sendPacket(BROAD_COMMAND | CMD_SEND_SAMPLES, ((unsigned char *)&actualSampling), sizeof(Sample_t));
- 
-        writePin(ioSensorProcessing, PIN_OFF);   // Finaliza a verificação de sensores
-        *sendSamples = 0;
-        *readSensors = 0;
+        
+        // Uma válvula foi ativada, sinaliza isto para a aplicação.
+        if(controlList[index].lastState == PIN_ON)
+            valvesState = VALVES_ON;
     }
+
+    // Envia um pacote de dados de amostras quando for requerido
+    if(sendSamples != 0)
+        sendPacket(BROAD_COMMAND | CMD_SEND_SAMPLES, ((unsigned char *)&actualSampling), sizeof(Sample_t));
+
+    writePin(ioSensorProcessing, PIN_OFF);   // Finaliza a verificação de sensores
 }
 
 //***********************************************************************************************************************

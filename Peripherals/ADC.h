@@ -9,16 +9,22 @@
 //=======================================================================================================================
 // ID dos ADCs utilizados
 //=======================================================================================================================
-#define ADC_0           0x00
-#define ADC_1           0x01
-#define ADC_2           0x02
-#define ADC_3           0x03
-#define ADC_4           0x04
-#define ADC_5           0x05
-#define ADC_10          0x0A
-#define ADC_11          0x0B
-#define ADC_12          0x0C
-#define ADC_ALL         0xFF
+#define ADC_AN0       0x00
+#define ADC_AN1       0x01
+#define ADC_AN2       0x02
+#define ADC_AN3       0x03
+#define ADC_AN4       0x04
+#define ADC_AN5       0x05
+#define ADC_AN10      0x0A
+#define ADC_AN11      0x0B
+#define ADC_AN12      0x0C
+
+#define ADC_VBG_DIV2  0x0E  // Band gap dividido por 2
+#define ADC_VBG       0x0F  // Band gap
+#define ADC_AVDD      0x07  // Alimentação positiva analógica
+#define ADC_AVSS      0x06  // Terra analógica
+#define ADC_NONE      0x0D  // Nenhum canal conectado (input flutuante)
+#define ADC_ALL       0xFF
 
 //***********************************************************************************************************************
 // Outras definições

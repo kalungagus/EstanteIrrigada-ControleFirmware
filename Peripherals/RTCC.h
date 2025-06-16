@@ -40,5 +40,6 @@ extern void loraPowerDown(void);
 extern uint8_t isRTCCUpdated(void);
 extern uint16_t bcdToInt(uint8_t data);
 extern uint8_t intToBcd(uint16_t data);
+extern uint8_t isTimeDateValid(DateTime_t *value);
 
 #endif
