@@ -12,6 +12,7 @@
 //***********************************************************************************************************************
 #define FCY                     16000000    // Frequência das instruções = FCLOCK / 2
 #define APPLICATION_TIME_OUT    2000        // Fica no máximo 1000ms (1s) ligado
+#define TRANSMISSION_TIME_OUT   500         // 200ms de timeout de transmissão
 #define HISTORY_DEPTH           2           // Quantidade de pontos para cálculo de derivada
 #define DERIVATIVE_THRESHOLD    2           // Sensor está estabilizando se variação for pequena
 #define MAX_SENSORS             6

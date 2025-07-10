@@ -135,15 +135,22 @@ nonVolatileConfig_t nonVolatileConfig =
 static uint32_t deepSleepTimeOut = 0;
 static uint8_t executeScheduler = 1;
 #ifdef DEBUG
-static uint8_t deepSleepTimeOutState = TIME_OUT_ENABLED;
+static uint8_t deepSleepTimeOutState = TIME_OUT_DISABLED;
 #else
 static uint8_t deepSleepTimeOutState = TIME_OUT_ENABLED;
 #endif
-uint8_t valveActivated = 0;
+static uint8_t deepSleepManagerLastState = 0;
 
 //***********************************************************************************************************************
 // Funções privadas que não podem ser acessadas por aplicações-filho
 //***********************************************************************************************************************
+//=======================================================================================================================
+// Função criada quando há interrupções não tratadas. Está aqui no caso de haver algum problema.
+//=======================================================================================================================
+void _ISR __attribute__((no_auto_psv)) _DefaultInterrupt(void)
+{
+}
+
 //=======================================================================================================================
 // Define quando cada task deve ser executada
 //=======================================================================================================================
@@ -159,22 +166,19 @@ static uint8_t isTimeToSendSamples(void)
 //=======================================================================================================================
 static void taskScheduler(void)
 {
-    uint8_t taskSensorHandlingFlags = SENSOR_TASK_NO_TRANSMISSION; 
+    uint8_t taskSensorHandlingFlags = SENSOR_TASK_NO_TRANSMISSION;
     uint8_t taskCommunicationFlags = FLAGS_NO_TRANSMITION;
     
     if(executeScheduler)
     {
         if(isRTCCUpdated())
         {
-            #ifdef DEBUG
-            taskSensorHandlingFlags = SENSOR_TASK_SEND_SAMPLES;
-            #else
             taskSensorHandlingFlags = isTimeToSendSamples();
-            #endif       
             if(taskSensorHandlingFlags || isAnyValveOn())
                 taskSensorHandling(taskSensorHandlingFlags);
 
-            taskCommunicationFlags = FLAGS_REQUEST_MESSAGES;
+            if(!taskSensorHandlingFlags)
+                taskCommunicationFlags = FLAGS_REQUEST_MESSAGES;
         }
         else
         {
@@ -367,17 +371,31 @@ void setDeepSleepTimeOutState(uint8_t state)
 }
 
 //=======================================================================================================================
+// Determina se o DeepSleep Manager pode atuar
+//=======================================================================================================================
+int8_t isSystemIdleForDeepSleep(void)
+{
+    uint8_t deepSleepManagerState = (!isAnyValveOn() && isCommunicationFree());
+    
+    if(deepSleepManagerState != deepSleepManagerLastState)
+    {
+        if(deepSleepManagerState == 1)
+            resetDeepSleepTimeOut();
+        
+        deepSleepManagerLastState = deepSleepManagerState;
+    }
+    
+    return deepSleepManagerState;
+}
+
+//=======================================================================================================================
 // Verifica se é necessário ou não entrar no modo Deep Sleep
 //=======================================================================================================================
 void deepSleepManager(void)
 {
     // Sem válvulas ativas, o sistema pode operar no modo de power-down
-    if(!isAnyValveOn())
+    if(isSystemIdleForDeepSleep())
     {
-        // Inicia o timeout assim que desativar todas as válvulas
-        if(valveActivated)
-            resetDeepSleepTimeOut();
-
         // O firmware deve entrar em modo Deep Sleep quando não houver válvulas ligadas. Isto porque
         // no Deep Sleep as portas do microcontrolador são desligadas.
         if(deepSleepTimeOutState == FORCE_TIMEOUT)
@@ -388,9 +406,6 @@ void deepSleepManager(void)
                 deepSleep();
         }
     }
-    
-    // Atualiza estado anterior para a próxima verificação de transição
-    valveActivated = isAnyValveOn();
 }
 
 //***********************************************************************************************************************

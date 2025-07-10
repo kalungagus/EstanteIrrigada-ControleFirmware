@@ -31,8 +31,8 @@ typedef union
 // Funções públicas do módulo
 //***********************************************************************************************************************
 extern void initRTCC(void);
-extern void writeDateTime(DateTime_t *value);
-extern void readDateTime(DateTime_t *value);
+extern uint8_t writeDateTime(DateTime_t *value);
+extern uint8_t readDateTime(DateTime_t *value);
 extern void writeAlarmTime(DateTime_t *value);
 extern void readAlarmTime(DateTime_t *value);
 extern void setAlarmInterruptHandler(void (*handler)(void));

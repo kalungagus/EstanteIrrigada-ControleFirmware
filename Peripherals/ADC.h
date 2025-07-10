@@ -48,6 +48,9 @@ typedef struct
 extern void initADCs(void);
 extern void setupADCPinState(adcChannel_t channel, uint8_t state);
 extern void setupADCPinStateList(const ADCSetup_t *list, uint8_t size);
+extern uint16_t readAVbgOffset(void);
+extern uint16_t readAVddOffset(void);
+extern uint16_t readAVssOffset(void);
 extern uint16_t getADCSample(adcChannel_t channel);
 
 #endif

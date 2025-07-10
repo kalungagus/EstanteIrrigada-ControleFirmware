@@ -40,6 +40,22 @@
 #define FLAGS_REQUEST_CALENDAR   0x01
 #define FLAGS_REQUEST_MESSAGES   0x02
 
+//=======================================================================================================================
+// Estados da Recepção
+//=======================================================================================================================
+#define RECEPTION_STATE_IDLE     0x00
+#define RECEPTION_STATE_HEADER   0x01
+#define RECEPTION_STATE_SIZE     0x02
+#define RECEPTION_STATE_PAYLOAD  0x03
+#define RECEPTION_STATE_CRC      0x04
+
+//=======================================================================================================================
+// Estados da Transmissão
+//=======================================================================================================================
+#define TRANSMISSION_STATE_IDLE        0x00
+#define TRANSMISSION_STATE_SEND        0x01
+#define TRANSMISSION_STATE_WAIT_ACK    0x02
+
 //***********************************************************************************************************************
 // Tipos de variáveis relacionadas ao módulo de recepção e transmissão LoRa
 //***********************************************************************************************************************
@@ -59,10 +75,12 @@ typedef struct
 //***********************************************************************************************************************
 extern void taskCommunication(uint8_t flags);
 extern void sendPacket(unsigned char cmd, unsigned char *payload, uint8_t payloadSize);
+extern void startTransmission(unsigned char cmd, unsigned char *payload, uint8_t payloadSize);
 extern void sendAck(unsigned char cmd);
 extern void sendNack(unsigned char cmd);
 extern void sendMessageRequest(void);
 extern void sendDateTimeRequest(void);
+extern uint8_t isCommunicationFree(void);
 
 #endif
 //***********************************************************************************************************************

@@ -43,6 +43,9 @@
 typedef struct
 {
     DateTime_t      instant;
+    uint16_t        vss;
+    uint16_t        vdd;
+    uint16_t        vbg;
     uint16_t        value[6];
     uint8_t         state[6];
 } Sample_t;

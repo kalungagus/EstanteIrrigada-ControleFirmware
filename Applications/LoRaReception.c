@@ -7,7 +7,9 @@
 #include "../Configuration/HardwareConfiguration.h"
 #include "../Peripherals/RTCC.h"
 #include "../Peripherals/LoRa.h"
+#include "../Peripherals/timers.h"
 #include <string.h>
+#include <libpic30.h>
 
 //***********************************************************************************************************************
 // Propriedades da aplicação pai que precisam ser acessadas neste módulo
@@ -17,8 +19,11 @@ extern controlConfig_t controlList[MAX_SENSORS];
 //***********************************************************************************************************************
 // Variáveis privadas do módulo
 //***********************************************************************************************************************
-static uint8_t receptionState = 0, messageSize = 0, bytesReaded = 0;
+static uint8_t receptionState = RECEPTION_STATE_IDLE, messageSize = 0, bytesReaded = 0;
+static uint8_t transmissionState = TRANSMISSION_STATE_IDLE, transmissionSize = 0, ackAttempts = 0;
+static uint32_t transmissionTimeOut = 0;
 static unsigned char receptionBuffer[MAX_PACKET_SIZE];
+static unsigned char transmissionBuffer[MAX_PACKET_SIZE];
 
 //***********************************************************************************************************************
 // Macros
@@ -31,12 +36,39 @@ static unsigned char receptionBuffer[MAX_PACKET_SIZE];
 // Funções privadas
 //***********************************************************************************************************************
 //=======================================================================================================================
+// Calcula CRC8 incrementalmente.
+//=======================================================================================================================
+uint8_t crc8_update(uint8_t crc, uint8_t data)
+{
+    crc ^= data;
+    for (uint8_t i = 0; i < 8; ++i)
+    {
+        if (crc & 0x80)
+            crc = (crc << 1) ^ 0x07; // Polinômio CRC-8: x^8 + x^2 + x + 1 (0x07)
+        else
+            crc <<= 1;
+    }
+    return crc;
+}
+
+uint16_t getUInt16BE(unsigned char *buffer, uint8_t index)
+{
+    return ((uint16_t)buffer[index] << 8) | buffer[index + 1];
+}
+
+uint16_t getUInt16LE(unsigned char *buffer, uint8_t index)
+{
+    return ((uint16_t)buffer[index + 1] << 8) | buffer[index];
+}
+
+//=======================================================================================================================
 // Função de processamento dos pacotes recebidos.
 //=======================================================================================================================
 static void processReception(unsigned char *packet, uint8_t size)
 {
     DateTime_t tempDateTime, systemDateTime;
-    CommandConfig_t requestedConfig, *configToSet;
+    CommandConfig_t requestedConfig;
+    uint8_t operationResult;
     
     switch(packet[0] & COMMAND_MASK)
     {
@@ -46,8 +78,11 @@ static void processReception(unsigned char *packet, uint8_t size)
             break;
             
         case CMD_GET_DATETIME:
-            readDateTime(&tempDateTime);
-            sendPacket(getResponsePrefixForOrigin(packet[0]) | CMD_GET_DATETIME, ((unsigned char *)&tempDateTime), sizeof(tempDateTime));
+            operationResult = readDateTime(&tempDateTime);
+            if(operationResult)
+                sendPacket(getResponsePrefixForOrigin(packet[0]) | CMD_GET_DATETIME, ((unsigned char *)&tempDateTime), sizeof(tempDateTime));
+            else
+                sendNack(getResponsePrefixForOrigin(packet[0]) | CMD_GET_DATETIME);
             break;
             
         case CMD_SET_DATETIME:
@@ -55,10 +90,15 @@ static void processReception(unsigned char *packet, uint8_t size)
             
             memcpy(&tempDateTime, &packet[1], sizeof(DateTime_t));
             readDateTime(&systemDateTime);
-            writeDateTime((DateTime_t *)&packet[1]);
+            operationResult = writeDateTime(&tempDateTime);
             // Confirmação para o software de configuração. Para o roteador, o módulo fará nova requisição se falhar.
             if(getPacketOrigin(packet[0]) == COMMAND_SOURCE_SOFTWARE)
-                sendAck(ENDPOINT_COMMAND | CMD_SET_DATETIME);
+            {
+                if(operationResult)
+                    sendAck(ENDPOINT_COMMAND | CMD_SET_DATETIME);
+                else
+                    sendNack(ENDPOINT_COMMAND | CMD_SET_DATETIME);
+            }
             
             // RTCC foi atualizado e pode perder uma amostragem, já que o alarme está configurado para 0 segundos.
             if((bcdToInt(systemDateTime.Time.seconds) > 50) && (bcdToInt(tempDateTime.Time.seconds) < 10))
@@ -66,24 +106,41 @@ static void processReception(unsigned char *packet, uint8_t size)
             break;
             
         case CMD_GET_CONTROL_CONFIG:
-            // Índice apontando para fora das configurações de sensor.
-            if(size < 2 || packet[1] >= MAX_SENSORS) break;
+            if(size < 2) break;
             
-            requestedConfig.index = packet[1];
-            requestedConfig.operation = controlList[packet[1]].operation;
-            requestedConfig.maxThreshold = controlList[packet[1]].maxThreshold;
-            requestedConfig.minThreshold = controlList[packet[1]].minThreshold;
-            sendPacket(getResponsePrefixForOrigin(packet[0]) | CMD_GET_CONTROL_CONFIG, ((unsigned char *)&requestedConfig), sizeof(CommandConfig_t));
+            if(packet[1] == 0xFF)
+            {
+                CommandConfig_t allConfigs[MAX_SENSORS];
+                for (uint8_t i = 0; i < MAX_SENSORS; i++)
+                {
+                    allConfigs[i].index = i;
+                    allConfigs[i].operation = controlList[i].operation;
+                    allConfigs[i].maxThreshold = controlList[i].maxThreshold;
+                    allConfigs[i].minThreshold = controlList[i].minThreshold;
+                }
+                sendPacket(getResponsePrefixForOrigin(packet[0]) | CMD_GET_CONTROL_CONFIG, ((unsigned char *)&allConfigs), sizeof(allConfigs));
+            }
+            else if(packet[1] < MAX_SENSORS)
+            {
+                requestedConfig.index = packet[1];
+                requestedConfig.operation = controlList[packet[1]].operation;
+                requestedConfig.maxThreshold = controlList[packet[1]].maxThreshold;
+                requestedConfig.minThreshold = controlList[packet[1]].minThreshold;
+                sendPacket(getResponsePrefixForOrigin(packet[0]) | CMD_GET_CONTROL_CONFIG, ((unsigned char *)&requestedConfig), sizeof(CommandConfig_t));
+            }
             break;
             
         case CMD_SET_CONTROL_CONFIG:
-            // Índice apontando para fora das configurações de sensor.
-            if(size < (1 + sizeof(CommandConfig_t)) || packet[1] >= MAX_SENSORS) break;
+            if(size < 2) break;
             
-            configToSet = (CommandConfig_t *)(&packet[1]);
-            controlList[packet[1]].operation = configToSet->operation;
-            controlList[packet[1]].maxThreshold = configToSet->maxThreshold;
-            controlList[packet[1]].minThreshold = configToSet->minThreshold;
+            for(uint8_t i = 1; i < size; i+= sizeof(CommandConfig_t))
+            {
+                uint8_t index = packet[i];
+                controlList[index].operation = packet[i+1];
+                controlList[index].minThreshold = getUInt16LE(packet, i+2);
+                controlList[index].maxThreshold = getUInt16LE(packet, i+4);
+            }
+            
             sendAck(getResponsePrefixForOrigin(packet[0]) | CMD_SET_CONTROL_CONFIG);
             break;
             
@@ -108,6 +165,20 @@ static void processReception(unsigned char *packet, uint8_t size)
             sendAck(getResponsePrefixForOrigin(packet[0]) | CMD_SET_TIMEOUT);   // Confirma para software de controle
             break;
             
+        case CMD_SEND_SAMPLES:
+            if (size != 2) break;
+            
+            if(packet[1] == 0x05)          // Envio de ENQ é uma confirmação com pedido de parada de timer.
+            {
+                setDeepSleepTimeOutState(packet[1]);
+                transmissionState = TRANSMISSION_STATE_IDLE;
+                sendAck(getResponsePrefixForOrigin(packet[0]) | CMD_SET_TIMEOUT);
+            }
+            else if(packet[1] == 0x06)     // Envio de ACK é apenas uma confirmação de recepção
+                transmissionState = TRANSMISSION_STATE_IDLE;
+            
+            break;
+            
         default:
             sendNack(getResponsePrefixForOrigin(packet[0]) | CMD_UNKNOWN);
             break;
@@ -121,39 +192,89 @@ static void processReception(unsigned char *packet, uint8_t size)
 //=======================================================================================================================
 static void processCharReception(unsigned char data)
 {
+    static uint8_t crc;
+    
     switch(receptionState)
     {
-        case 0: // Aguardando byte 0xAA
+        case RECEPTION_STATE_IDLE: // Aguardando byte 0xAA
             if(data == 0xAA) 
-                receptionState = 1;
+                receptionState = RECEPTION_STATE_HEADER;
             break;
             
-        case 1: // Aguardando byte 0x55
+        case RECEPTION_STATE_HEADER: // Aguardando byte 0x55
             if(data == 0x55)
-                receptionState = 2;
+                receptionState = RECEPTION_STATE_SIZE;
             else
-                receptionState = 0; // Reseta se não for o byte esperado
+                receptionState = RECEPTION_STATE_IDLE; // Reseta se não for o byte esperado
             break;
             
-        case 2: // Recebe tamanho da mensagem
-            messageSize = (data > MAX_PACKET_SIZE) ? MAX_PACKET_SIZE : data;
-            bytesReaded = 0;
-            receptionState = 3;
-            break;
-            
-        case 3:
-            receptionBuffer[bytesReaded++] = data;
-            if(bytesReaded >= messageSize)
+        case RECEPTION_STATE_SIZE: // Recebe tamanho da mensagem
+            if(data < 2 || data > MAX_PACKET_SIZE) 
             {
-                processReception(receptionBuffer, messageSize);
-                receptionState = 0; // Reseta para próxima mensagem
+                receptionState = RECEPTION_STATE_IDLE;  // Tamanho inválido
+                break;
+            }
+            
+            messageSize = data;
+            bytesReaded = 0;
+            crc = crc8_update(0x00, data);  // Inclui tamanho no CRC
+            receptionState = RECEPTION_STATE_PAYLOAD;
+            break;
+            
+        case RECEPTION_STATE_PAYLOAD: // Recebendo payload (inclui comando + payload + CRC)
+            receptionBuffer[bytesReaded++] = data;
+            crc = crc8_update(crc, data);
+            
+            if (bytesReaded >= messageSize - 1)
+                receptionState = RECEPTION_STATE_CRC;
+            break;
+            
+        case RECEPTION_STATE_CRC:
+            if(crc == data)
+                processReception(receptionBuffer, messageSize-1);
+
+            receptionState = RECEPTION_STATE_IDLE; // Reseta para próxima mensagem
+            break;
+            
+        default:
+            receptionState = RECEPTION_STATE_IDLE; // Em caso de estado inválido, reseta
+            break;
+  }
+}
+
+//=======================================================================================================================
+// Máquina de estados para transmissão e retransmissão de amostras
+//=======================================================================================================================
+void processTransmission(void)
+{
+    switch(transmissionState)
+    {
+        case TRANSMISSION_STATE_IDLE:
+            break;
+            
+        case TRANSMISSION_STATE_SEND:
+            beginLoRaPacket(EXPLICIT_MODE);
+            loadBufferToLoRa(transmissionBuffer, transmissionSize);
+            endLoRaPacket();
+
+            transmissionTimeOut = getTimerInterruptCount();
+            transmissionState = TRANSMISSION_STATE_WAIT_ACK;
+            break;
+            
+        case TRANSMISSION_STATE_WAIT_ACK:
+            if(getElapsedTimeSince(transmissionTimeOut) >= TRANSMISSION_TIME_OUT)
+            {
+                if(--ackAttempts > 0)
+                    transmissionState = TRANSMISSION_STATE_SEND;
+                else
+                    transmissionState = TRANSMISSION_STATE_IDLE;
             }
             break;
             
         default:
-            receptionState = 0; // Em caso de estado inválido, reseta
+            transmissionState = TRANSMISSION_STATE_IDLE;
             break;
-  }
+    }
 }
 
 //***********************************************************************************************************************
@@ -186,6 +307,9 @@ void taskCommunication(uint8_t flags)
         while(LoRaBytesAvailable())
             processCharReception(readByteFromLoRa());
     }
+
+    if(transmissionState != TRANSMISSION_STATE_IDLE)
+        processTransmission();
 }
 
 //=======================================================================================================================
@@ -193,18 +317,69 @@ void taskCommunication(uint8_t flags)
 //=======================================================================================================================
 void sendPacket(unsigned char cmd, unsigned char *payload, uint8_t payloadSize)
 {
+    uint8_t crc = 0x00;
+    
     // Define que todo comando enviado é de origem do módulo
     cmd &= ~SOURCE_MASK;
     cmd |= COMMAND_SOURCE_MODULE;
 
     while(isLoRaTransmitting());
     beginLoRaPacket(EXPLICIT_MODE);
+
     writeByteToLora(0xAA);
     writeByteToLora(0x55);
-    writeByteToLora(payloadSize+1);
+
+    crc = crc8_update(crc, payloadSize+2);
+    writeByteToLora(payloadSize+2);
+
+    crc = crc8_update(crc, cmd);
     writeByteToLora(cmd);
-    loadBufferToLoRa(payload, payloadSize);
+
+    for (uint8_t i = 0; i < payloadSize; i++)  // 'length' é o número de bytes do payload
+    {
+        crc = crc8_update(crc, payload[i]);
+        writeByteToLora(payload[i]);
+    }
+    
+    writeByteToLora(crc);
+    
     endLoRaPacket();
+}
+
+//=======================================================================================================================
+// Inicia a transmissão de um pacote com retransmissão
+//=======================================================================================================================
+void startTransmission(unsigned char cmd, unsigned char *payload, uint8_t payloadSize)
+{
+    if(transmissionState == TRANSMISSION_STATE_IDLE && (payloadSize + 5 < MAX_PACKET_SIZE))
+    {
+        uint8_t crc = 0x00;
+
+        // Define que todo comando enviado é de origem do módulo
+        cmd &= ~SOURCE_MASK;
+        cmd |= COMMAND_SOURCE_MODULE;
+
+        transmissionBuffer[0] = 0xAA;
+        transmissionBuffer[1] = 0x55;
+
+        crc = crc8_update(crc, payloadSize+2);
+        transmissionBuffer[2] = payloadSize+2;
+
+        crc = crc8_update(crc, cmd);
+        transmissionBuffer[3] = cmd;
+
+        for (uint8_t i = 0; i < payloadSize; i++)
+        {
+            crc = crc8_update(crc, payload[i]);
+            transmissionBuffer[4+i] = payload[i];
+        }
+
+        transmissionBuffer[4+payloadSize] = crc;
+
+        ackAttempts = 3;
+        transmissionSize = payloadSize + 5;
+        transmissionState = TRANSMISSION_STATE_SEND;
+    }
 }
 
 //=======================================================================================================================
@@ -212,17 +387,29 @@ void sendPacket(unsigned char cmd, unsigned char *payload, uint8_t payloadSize)
 //=======================================================================================================================
 void sendAck(unsigned char cmd)
 {
+    uint8_t crc = 0x00;
+    
     // Define que todo comando enviado é de origem do módulo
     cmd &= ~SOURCE_MASK;
     cmd |= COMMAND_SOURCE_MODULE;
 
     while(isLoRaTransmitting());
     beginLoRaPacket(EXPLICIT_MODE);
+    
     writeByteToLora(0xAA);
     writeByteToLora(0x55);
-    writeByteToLora(0x02);
+    
+    crc = crc8_update(crc, 0x03);
+    writeByteToLora(0x03);
+    
+    crc = crc8_update(crc, cmd);
     writeByteToLora(cmd);
+    
+    crc = crc8_update(crc, 0x06);
     writeByteToLora(0x06);
+    
+    writeByteToLora(crc);
+    
     endLoRaPacket();
 }
 
@@ -231,17 +418,29 @@ void sendAck(unsigned char cmd)
 //=======================================================================================================================
 void sendNack(unsigned char cmd)
 {
+    uint8_t crc = 0x00;
+    
     // Define que todo comando enviado é de origem do módulo
     cmd &= ~SOURCE_MASK;
     cmd |= COMMAND_SOURCE_MODULE;
     
     while(isLoRaTransmitting());
     beginLoRaPacket(EXPLICIT_MODE);
+    
     writeByteToLora(0xAA);
     writeByteToLora(0x55);
-    writeByteToLora(0x02);
+    
+    crc = crc8_update(crc, 0x03);
+    writeByteToLora(0x03);
+    
+    crc = crc8_update(crc, cmd);
     writeByteToLora(cmd);
+    
+    crc = crc8_update(crc, 0x15);
     writeByteToLora(0x15);
+    
+    writeByteToLora(crc);
+    
     endLoRaPacket();
 }
 
@@ -261,13 +460,33 @@ void sendMessageRequest(void)
 //=======================================================================================================================
 void sendDateTimeRequest(void)
 {
+    uint8_t crc = 0x00;
+    
     while(isLoRaTransmitting());
     beginLoRaPacket(EXPLICIT_MODE);
+    
     writeByteToLora(0xAA);
     writeByteToLora(0x55);
-    writeByteToLora(0x01);
+    
+    crc = crc8_update(crc, 0x02);
+    writeByteToLora(0x02);
+    
+    crc = crc8_update(crc, ROUTER_COMMAND | COMMAND_SOURCE_MODULE | CMD_GET_DATETIME);
     writeByteToLora(ROUTER_COMMAND | COMMAND_SOURCE_MODULE | CMD_GET_DATETIME);
+    
+    writeByteToLora(crc);
+    
     endLoRaPacket();
 }
 
+//=======================================================================================================================
+// Verifica se os canais de comunicação estão ocupados
+//=======================================================================================================================
+uint8_t isCommunicationFree(void)
+{
+    uint8_t result = ((transmissionState == TRANSMISSION_STATE_IDLE) &&
+                      (receptionState    == RECEPTION_STATE_IDLE) &&
+                      !isLoRaTransmitting());
+    return result;
+}
 //***********************************************************************************************************************

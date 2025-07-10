@@ -354,6 +354,8 @@ void endLoRaPacket(void)
 
         while ((readLoRaRegister(REG_IRQ_FLAGS) & IRQ_TX_DONE_MASK) == 0);
         writeLoRaRegister(REG_IRQ_FLAGS, IRQ_TX_DONE_MASK);
+        
+        __delay_ms(1);
     }
 }
 

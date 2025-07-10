@@ -6,6 +6,8 @@
 #include "RTCC.h"
 #include <xc.h>
 #include <stddef.h>
+#include <libpic30.h>
+#include <string.h>
 
 //***********************************************************************************************************************
 // Macros
@@ -70,10 +72,10 @@ void initRTCC(void)
 }
 
 //=======================================================================================================================
-// Escrita de Data/Hora
+// Escrita de Data/Hora no RTC
 // Alterado para tornar uma função atômica
 //=======================================================================================================================
-void writeDateTime(DateTime_t *value)
+void writeRTCDateTime(DateTime_t *value)
 {
     __builtin_disi(0x3FFF);     // Desativa interrupções
     unlockRTCC();
@@ -91,10 +93,10 @@ void writeDateTime(DateTime_t *value)
 }
 
 //=======================================================================================================================
-// Leitura de Data/Hora
+// Leitura de Data/Hora no RTC
 // Alterado para tornar uma função atômica
 //=======================================================================================================================
-void readDateTime(DateTime_t *value)
+void readRTCDateTime(DateTime_t *value)
 {
     __builtin_disi(0x3FFF);       // Desativa interrupções
     // Aguarda sincronização com o clock do RTC
@@ -108,6 +110,45 @@ void readDateTime(DateTime_t *value)
     value->w[3] = RTCVAL;         // Minuto e segundos
     
     __builtin_disi(0x0000);       // Reativa interrupções
+}
+
+//=======================================================================================================================
+// Escrita de Data/Hora
+// Faz a escrita no RTC e confirma se os dados foram gravados corretamente
+//=======================================================================================================================
+uint8_t writeDateTime(DateTime_t *value)
+{
+    DateTime_t tempDateTime;
+    int8_t attempts = 5;
+    
+    do
+    {
+        writeRTCDateTime(value);
+        __delay_us(5);
+        readRTCDateTime(&tempDateTime);
+    } while (memcmp(value, &tempDateTime, sizeof(DateTime_t)) != 0 && --attempts > 0);
+    
+    return (attempts > 0);
+}
+
+//=======================================================================================================================
+// Leitura de Data/Hora
+// Faz duas leituras e as compara, para garantir que a leitura não foi feita durante
+// atualização do horário.
+//=======================================================================================================================
+uint8_t readDateTime(DateTime_t *value)
+{
+    DateTime_t temp1, temp2;
+    int8_t attempts = 5;
+    
+    do
+    {
+        readRTCDateTime(&temp1);
+        readRTCDateTime(&temp2);
+    } while (memcmp(&temp1, &temp2, sizeof(DateTime_t)) != 0 &&  --attempts > 0);
+    
+    memcpy(value, &temp1, sizeof(DateTime_t));
+    return (attempts > 0);
 }
 
 //=======================================================================================================================

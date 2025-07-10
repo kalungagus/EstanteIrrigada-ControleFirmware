@@ -208,6 +208,9 @@ void taskSensorHandling(uint8_t sendSamples)
     // Leitura dos sensores. A leitura é feita para todos os sensores, antes do processamento,
     // para manter a fonte dos sensores ligada o menor tempo possível.
     setSensorSourceState(1);    // Liga a fonte dos sensores
+    actualSampling.vss = readAVssOffset();
+    actualSampling.vdd = readAVddOffset();
+    actualSampling.vbg = readAVbgOffset();
     for(int8_t index = 0; index < MAX_SENSORS; index++)
         actualSampling.value[index] = (controlList[index].operation != CONTROL_DISABLED) ? getADCSample(controlList[index].sensorADC) : 0x0000;
     setSensorSourceState(0);    // Desliga a fonte dos sensores
@@ -240,7 +243,7 @@ void taskSensorHandling(uint8_t sendSamples)
 
     // Envia um pacote de dados de amostras quando for requerido
     if(sendSamples != 0)
-        sendPacket(BROAD_COMMAND | CMD_SEND_SAMPLES, ((unsigned char *)&actualSampling), sizeof(Sample_t));
+        startTransmission(BROAD_COMMAND | CMD_SEND_SAMPLES, ((unsigned char *)&actualSampling), sizeof(Sample_t));
 
     writePin(ioSensorProcessing, PIN_OFF);   // Finaliza a verificação de sensores
 }
